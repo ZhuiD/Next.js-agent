@@ -96,7 +96,16 @@ export default function Page() {
                         key={i}
                         className="prose prose-sm max-w-none prose-zinc prose-a:text-blue-600"
                       >
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            a: ({ href, children }) => (
+                              <a href={href} target="_blank" rel="noreferrer">
+                                {children}
+                              </a>
+                            ),
+                          }}
+                        >
                           {part.text}
                         </ReactMarkdown>
                       </div>
