@@ -4,11 +4,13 @@
 
 ## 能力
 
-| 模式 | 用途 | 工具 |
+| 模式 | 用途 | 实现 |
 |---|---|---|
-| GitHub 趋势 | 看热门仓库 / 某语言/方向的趋势项目 | `trending`（抓 github.com/trending） |
-| 文献调研 | 基于 arXiv 的关键词检索、按 cs.* 分类过滤、按时间排序 | `paper_search` |
-| 通用聊天 | 写代码、概念解释、翻译等 | 无工具 |
+| GitHub 趋势 | 看热门仓库 / 某语言/方向的趋势项目 | 主 agent → `github_research` subagent → `trending` 工具 |
+| 文献调研 | 基于 arXiv 的关键词检索、按 cs.* 分类过滤、按时间排序 | 主 agent → `literature_research` subagent → `paper_search` 工具 |
+| 通用聊天 | 写代码、概念解释、翻译等 | 主 agent 直答，不调任何工具 |
+
+> **架构**：使用 Vercel AI SDK 官方推荐的 **Subagents-as-Tools** 模式。主 agent 只做意图路由；每个领域 subagent 拥有独立 system prompt + 工具集 + 上下文。Subagent 内部工具调用的 UI 流通过 `writer.merge` 实时转发到主流，所以前端依然能看到 `trending` / `paper_search` 卡片实时渲染。
 
 > **关于文献数据源**：当前只接入 arXiv（国内可直连、无需 key、限速宽松）。
 > 不支持"按顶会精确过滤"和"引用网络"，需要这些能力时建议去对应会议 OpenAccess 站点或 arXiv 论文页底部的 "Cited by" 链接。
@@ -16,7 +18,7 @@
 ## 技术栈
 
 - **Next.js 15** App Router + TypeScript
-- **Vercel AI SDK** (`ai` + `@ai-sdk/react`)，使用 `ToolLoopAgent` 实现多步工具调用
+- **Vercel AI SDK** (`ai` + `@ai-sdk/react`)，使用 `ToolLoopAgent` + Subagents-as-Tools 模式
 - **阿里云百炼 (DashScope) `qwen-plus`**，通过 OpenAI 兼容接口接入
 - **cheerio** 抓取 `github.com/trending`（GitHub 无官方 Trending API）
 - **arXiv API**（无需 key）提供文献检索能力
@@ -26,23 +28,36 @@
 
 ```
 app/
-  api/chat/route.ts          # POST /api/chat
-  page.tsx                   # 聊天 UI（流式 markdown + 工具卡片）
+  api/chat/route.ts            # POST /api/chat（自管 UI message stream，注入 writer 给 subagent）
+  page.tsx                     # 聊天 UI（流式 markdown + 工具卡片 + 调研须知）
   layout.tsx
 agent/
-  trending-agent.ts          # ToolLoopAgent：模型 + 系统提示 + 工具
+  root-agent.ts                # 主 router agent：只持有 2 个 subagent-as-tool
+  research-agent.ts            # 文献调研 subagent（持有 paper_search）
+  github-agent.ts              # GitHub 趋势 subagent（持有 trending）
+  ui-messages.ts               # 客户端聚合 UIMessage 类型
+  prompts/                     # 拆分的 system prompt 模块
+    common.ts                  # 通用风格 + 实时日期注入 + buildSystemPrompt()
+    anti-hallucination.ts      # 防幻觉铁律 + 工具失败处理 runbook
+    router.ts                  # 主 agent prompt
+    research.ts                # 文献调研 subagent prompt
+    github.ts                  # GitHub subagent prompt
 tool/
-  trending-tool.ts           # GitHub Trending 抓取
-  paper-search-tool.ts       # arXiv 论文检索
+  literature-research-tool.ts  # 包装 research-agent 为 tool（merge subagent stream 到主流）
+  github-research-tool.ts      # 包装 github-agent 为 tool
+  paper-search-tool.ts         # arXiv 论文检索（叶子）
+  trending-tool.ts             # GitHub Trending 抓取（叶子）
 lib/
-  model.ts                   # DashScope OpenAI 兼容 provider
-  github-trending.ts         # cheerio 抓取 + 解析 trending 页面
-  arxiv.ts                   # arXiv API 封装（含 3s 节流 + 重试）
-  rate-limit.ts              # 进程内最小间隔节流器
+  model.ts                     # DashScope OpenAI 兼容 provider
+  github-trending.ts           # cheerio 抓取 + 解析 trending 页面
+  arxiv.ts                     # arXiv API 封装（含 3s 节流 + 重试）
+  rate-limit.ts                # 进程内最小间隔节流器
+  use-stick-to-bottom.ts       # ChatGPT 风格的流式自动滚动 hook
 component/
   chat-input.tsx
-  trending-view.tsx          # 趋势仓库卡片
-  paper-view.tsx             # arXiv 论文卡片
+  trending-view.tsx            # 趋势仓库卡片
+  paper-view.tsx               # arXiv 论文卡片
+  research-disclaimer.tsx      # 文献调研后的能力边界提示卡
 ```
 
 ## 启动步骤

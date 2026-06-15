@@ -1,18 +1,34 @@
-import { createTrendingAgent } from '@/agent/trending-agent';
-import { createAgentUIStreamResponse } from 'ai';
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  convertToModelMessages,
+} from 'ai';
+import { createRootAgent } from '@/agent/root-agent';
+import type { AppUIMessage } from '@/agent/ui-messages';
 
-// 长一些的超时，给 LLM + scraping 留余地
+// 长一些的超时，给 LLM + subagent + scraping/arxiv 留余地
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const { messages } = await request.json();
 
-  // 每次请求重建 agent，确保 system prompt 里的"今天"用的是真实当前日期，
-  // 而不是模块加载时（可能是几小时前）冻结的时间。
-  const agent = createTrendingAgent();
+  const stream = createUIMessageStream<AppUIMessage>({
+    execute: async ({ writer }) => {
+      // experimental_context 由 agent 透传给所有 tool。
+      // subagent-as-tool 的 execute 会通过 ctx.writer 把自己的 UI stream
+      // merge 到这个主 writer。
+      const agent = createRootAgent({ writer });
 
-  return createAgentUIStreamResponse({
-    agent,
-    uiMessages: messages,
+      const modelMessages = await convertToModelMessages(messages);
+
+      const result = await agent.stream({
+        messages: modelMessages,
+      });
+
+      // 把主 agent 自己的 stream 也 merge 进去（路由文本 + tool calls + finish）。
+      writer.merge(result.toUIMessageStream());
+    },
   });
+
+  return createUIMessageStreamResponse({ stream });
 }

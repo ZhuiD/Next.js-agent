@@ -8,7 +8,7 @@ import TrendingView from '@/component/trending-view';
 import PaperView from '@/component/paper-view';
 import ResearchDisclaimer from '@/component/research-disclaimer';
 import { useStickToBottom } from '@/lib/use-stick-to-bottom';
-import type { TrendingAgentUIMessage } from '@/agent/trending-agent';
+import type { AppUIMessage } from '@/agent/ui-messages';
 
 const SUGGESTIONS = [
   '最近 24 小时最火的 AI 项目，用中文总结',
@@ -19,7 +19,7 @@ const SUGGESTIONS = [
 
 export default function Page() {
   const { status, sendMessage, messages, stop } =
-    useChat<TrendingAgentUIMessage>();
+    useChat<AppUIMessage>();
   const { contentRef, isAtBottom, scrollToBottom } =
     useStickToBottom<HTMLDivElement>();
 
