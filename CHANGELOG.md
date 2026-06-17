@@ -10,4 +10,4 @@
   - `LLM_MODEL` — 模型名，默认 `qwen-plus`
   - 同时兼容旧变量 `DASHSCOPE_API_KEY`
 - **`.env.local.example`**：更新为多 provider 配置说明，附各厂 URL 和模型名速查
-- **`package-lock.json`**：npm install 生成，兼容 npm 包管理器
+- **`.gitignore`**：新增 `package-lock.json` 忽略规则（项目使用 pnpm）
