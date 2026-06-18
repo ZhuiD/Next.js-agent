@@ -19,7 +19,7 @@
 
 - **Next.js 15** App Router + TypeScript
 - **Vercel AI SDK** (`ai` + `@ai-sdk/react`)，使用 `ToolLoopAgent` + Subagents-as-Tools 模式
-- **阿里云百炼 (DashScope) `qwen-plus`**，通过 OpenAI 兼容接口接入
+- **通用 OpenAI 兼容 Provider**（默认阿里云百炼 `qwen-plus`，支持 DeepSeek / OpenAI 等切换）
 - **cheerio** 抓取 `github.com/trending`（GitHub 无官方 Trending API）
 - **arXiv API**（无需 key）提供文献检索能力
 - **Tailwind CSS** + `@tailwindcss/typography` + `react-markdown`
@@ -95,13 +95,18 @@ paper_search (arXiv，可选 cs.* 分类、按相关度/时间排序)
 结构化中文报告：研究脉络 + 重点论文 TLDR + 后续阅读建议
 ```
 
-## 切换模型
+## 切换 Provider / 模型
 
-默认使用 `qwen-plus`。可在 `.env.local` 覆盖：
+通过 `.env.local` 环境变量切换 LLM 服务商和模型，无需改代码：
 
 ```env
-DASHSCOPE_MODEL=qwen-max   # 更强但更贵
-DASHSCOPE_MODEL=qwen-turbo # 更便宜
+LLM_API_KEY=sk-xxx                           # API Key（必填）
+LLM_BASE_URL=https://api.deepseek.com/v1     # 可选，默认阿里云百炼
+LLM_MODEL=deepseek-chat                      # 可选，默认 qwen-plus
 ```
 
-如需换成 OpenAI / DeepSeek，编辑 `lib/model.ts` 的 `baseURL` 和 `apiKey` 即可。
+| Provider | LLM_BASE_URL | LLM_MODEL |
+|----------|-------------|-----------|
+| 阿里云百炼（默认） | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` / `qwen-max` / `qwen-turbo` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` / `deepseek-reasoner` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o` / `gpt-4o-mini` |
