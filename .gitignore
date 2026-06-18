@@ -30,6 +30,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# npm (项目用 pnpm，npm install 会意外生成)
+package-lock.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
