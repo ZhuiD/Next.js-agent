@@ -1,107 +1,254 @@
 # GitTrendInsight & Research Agent
 
-> 用一句自然语言问，AI 自动调用工具，生成 GitHub 趋势报告或 arXiv 文献调研报告（中文）。
+一个基于 Next.js 的全栈 AI 调研助手，支持：
 
-## 能力
-
-| 模式 | 用途 | 实现 |
-|---|---|---|
-| GitHub 趋势 | 看热门仓库 / 某语言/方向的趋势项目 | 主 agent → `github_research` subagent → `trending` 工具 |
-| 文献调研 | 基于 arXiv 的关键词检索、按 cs.* 分类过滤、按时间排序 | 主 agent → `literature_research` subagent → `paper_search` 工具 |
-| 通用聊天 | 写代码、概念解释、翻译等 | 主 agent 直答，不调任何工具 |
-
-> **架构**：使用 Vercel AI SDK 官方推荐的 **Subagents-as-Tools** 模式。主 agent 只做意图路由；每个领域 subagent 拥有独立 system prompt + 工具集 + 上下文。Subagent 内部工具调用的 UI 流通过 `writer.merge` 实时转发到主流，所以前端依然能看到 `trending` / `paper_search` 卡片实时渲染。
-
-> **关于文献数据源**：当前只接入 arXiv（国内可直连、无需 key、限速宽松）。
-> 不支持"按顶会精确过滤"和"引用网络"，需要这些能力时建议去对应会议 OpenAccess 站点或 arXiv 论文页底部的 "Cited by" 链接。
+- GitHub Trending 趋势项目分析
+- arXiv 论文检索与中文调研报告
+- GitHub OAuth 登录
+- SQLite 本地数据库持久化用户、会话和消息
+- 后续迁移到 Supabase Postgres 的 Prisma 数据模型基础
 
 ## 技术栈
 
-- **Next.js 15** App Router + TypeScript
-- **Vercel AI SDK** (`ai` + `@ai-sdk/react`)，使用 `ToolLoopAgent` + Subagents-as-Tools 模式
-- **阿里云百炼 (DashScope) `qwen-plus`**，通过 OpenAI 兼容接口接入
-- **cheerio** 抓取 `github.com/trending`（GitHub 无官方 Trending API）
-- **arXiv API**（无需 key）提供文献检索能力
-- **Tailwind CSS** + `@tailwindcss/typography` + `react-markdown`
+- Next.js 15 App Router
+- React 18
+- TypeScript
+- Tailwind CSS
+- Vercel AI SDK
+- Auth.js / NextAuth v5
+- Prisma 7
+- SQLite，本地使用 `file:./dev.db`
+- DashScope OpenAI-compatible API，默认模型 `qwen-plus`
 
-## 项目结构
+## 功能概览
 
-```
-app/
-  api/chat/route.ts            # POST /api/chat（自管 UI message stream，注入 writer 给 subagent）
-  page.tsx                     # 聊天 UI（流式 markdown + 工具卡片 + 调研须知）
-  layout.tsx
-agent/
-  root-agent.ts                # 主 router agent：只持有 2 个 subagent-as-tool
-  research-agent.ts            # 文献调研 subagent（持有 paper_search）
-  github-agent.ts              # GitHub 趋势 subagent（持有 trending）
-  ui-messages.ts               # 客户端聚合 UIMessage 类型
-  prompts/                     # 拆分的 system prompt 模块
-    common.ts                  # 通用风格 + 实时日期注入 + buildSystemPrompt()
-    anti-hallucination.ts      # 防幻觉铁律 + 工具失败处理 runbook
-    router.ts                  # 主 agent prompt
-    research.ts                # 文献调研 subagent prompt
-    github.ts                  # GitHub subagent prompt
-tool/
-  literature-research-tool.ts  # 包装 research-agent 为 tool（merge subagent stream 到主流）
-  github-research-tool.ts      # 包装 github-agent 为 tool
-  paper-search-tool.ts         # arXiv 论文检索（叶子）
-  trending-tool.ts             # GitHub Trending 抓取（叶子）
-lib/
-  model.ts                     # DashScope OpenAI 兼容 provider
-  github-trending.ts           # cheerio 抓取 + 解析 trending 页面
-  arxiv.ts                     # arXiv API 封装（含 3s 节流 + 重试）
-  rate-limit.ts                # 进程内最小间隔节流器
-  use-stick-to-bottom.ts       # ChatGPT 风格的流式自动滚动 hook
-component/
-  chat-input.tsx
-  trending-view.tsx            # 趋势仓库卡片
-  paper-view.tsx               # arXiv 论文卡片
-  research-disclaimer.tsx      # 文献调研后的能力边界提示卡
+### GitHub 趋势分析
+
+用户可以输入类似：
+
+```txt
+最近 24 小时最火的 AI 项目，用中文总结
+本周 TypeScript 趋势仓库，挑 5 个深度点评
 ```
 
-## 启动步骤
+系统会抓取 GitHub Trending，并生成中文分析报告。
 
-1. 在[百炼控制台](https://bailian.console.aliyun.com/?apiKey=1)申请一个 API Key（新账号有免费 token 额度）。
-2. 配置环境变量：
-   ```bash
-   cp .env.local.example .env.local
-   # 编辑 .env.local，把 DASHSCOPE_API_KEY 填进去
-   ```
-3. 安装并启动：
-   ```bash
-   pnpm install
-   pnpm dev
-   ```
-4. 打开 http://localhost:3000，试试这些提问：
+### 文献调研
 
-   GitHub 趋势：
-   - "最近 24 小时最火的 AI 项目，用中文总结"
-   - "本周 TypeScript 趋势仓库，挑 5 个深度点评"
+用户可以输入类似：
 
-   文献调研：
-   - "帮我调研近 1 年视频生成扩散模型方向的 arXiv 论文"
-   - "最新的 3D 高斯泼溅（Gaussian Splatting）有哪些新工作？"
-   - "Transformer 在时序预测上的最新进展，给我列 5 篇代表作"
-
-## 文献调研工作流
-
-```
-中文研究方向
-    ↓ 关键词扩展（写明英文检索词，方便你校对）
-paper_search (arXiv，可选 cs.* 分类、按相关度/时间排序)
-    ↓ 可选：换关键词或切换排序方式再调一次（单轮 ≤ 2 次）
-    ↓
-结构化中文报告：研究脉络 + 重点论文 TLDR + 后续阅读建议
+```txt
+帮我调研近 1 年视频生成扩散模型方向的 arXiv 论文
+最新的 3D 高斯泼溅有哪些新工作？
 ```
 
-## 切换模型
+系统会检索 arXiv，并整理结构化中文报告。
 
-默认使用 `qwen-plus`。可在 `.env.local` 覆盖：
+### 登录与持久化
+
+- 使用 GitHub OAuth 登录。
+- 使用 Auth.js Prisma Adapter 保存用户、账户和会话。
+- 使用 Prisma 保存聊天会话和消息。
+- 不使用 `localStorage` 保存对话内容。
+
+## 本地开发初始化
+
+### 1. 安装依赖
+
+```bash
+pnpm install
+```
+
+### 2. 准备环境变量
+
+复制环境变量模板：
+
+```bash
+cp .env.local.example .env.local
+```
+
+编辑 `.env.local`：
 
 ```env
-DASHSCOPE_MODEL=qwen-max   # 更强但更贵
-DASHSCOPE_MODEL=qwen-turbo # 更便宜
+# 阿里云百炼 DashScope API Key
+DASHSCOPE_API_KEY=sk-xxx
+
+# 可选：默认 qwen-plus
+# DASHSCOPE_MODEL=qwen-plus
+
+# 本地 SQLite 数据库
+DATABASE_URL="file:./dev.db"
+
+# Auth.js
+AUTH_SECRET="dev-secret"
+AUTH_URL="http://localhost:3000"
+
+# GitHub OAuth App
+AUTH_GITHUB_ID="your-github-oauth-client-id"
+AUTH_GITHUB_SECRET="your-github-oauth-client-secret"
 ```
 
-如需换成 OpenAI / DeepSeek，编辑 `lib/model.ts` 的 `baseURL` 和 `apiKey` 即可。
+本地开发时 `AUTH_SECRET` 可以先用简单值，例如：
+
+```env
+AUTH_SECRET="dev-secret"
+```
+
+生产环境必须换成高强度随机字符串。
+
+可以用以下命令生成：
+
+```bash
+openssl rand -base64 32
+```
+
+### 3. 创建 GitHub OAuth App
+
+在 GitHub Developer Settings 创建 OAuth App。
+
+本地开发填写：
+
+```txt
+Homepage URL:
+http://localhost:3000
+
+Authorization callback URL:
+http://localhost:3000/api/auth/callback/github
+```
+
+创建完成后，把 GitHub 提供的值填入 `.env.local`：
+
+```env
+AUTH_GITHUB_ID="Client ID"
+AUTH_GITHUB_SECRET="Client Secret"
+```
+
+说明：
+
+- `AUTH_GITHUB_ID` 和 `AUTH_GITHUB_SECRET` 用于让本站向 GitHub 证明 OAuth App 身份。
+- `AUTH_SECRET` 是本站内部用于签名和加密登录 session 的密钥。
+
+### 4. 生成 Prisma Client
+
+```bash
+pnpm exec prisma generate
+```
+
+### 5. 同步数据库表结构
+
+```bash
+pnpm exec prisma db push
+```
+
+这一步会根据 `prisma/schema.prisma` 在本地 SQLite 数据库中创建表，包括：
+
+- `User`
+- `Account`
+- `Session`
+- `VerificationToken`
+- `Chat`
+- `Message`
+
+可以理解为：
+
+```txt
+schema.prisma 是数据库设计图，prisma db push 是把设计图应用到真实数据库。
+```
+
+### 6. 启动开发服务器
+
+```bash
+pnpm dev
+```
+
+打开：
+
+```txt
+http://localhost:3000
+```
+
+## 常用命令
+
+```bash
+# 启动开发服务器
+pnpm dev
+
+# 生产构建
+pnpm build
+
+# 启动生产服务
+pnpm start
+
+# 类型检查
+pnpm exec tsc --noEmit
+
+# 生成 Prisma Client
+pnpm exec prisma generate
+
+# 同步数据库 schema 到本地 SQLite
+pnpm exec prisma db push
+```
+
+## 数据库说明
+
+当前本地开发使用 SQLite：
+
+```env
+DATABASE_URL="file:./dev.db"
+```
+
+SQLite 数据库文件 `dev.db` 会在执行 `prisma db push` 后自动创建。
+
+当前使用 Prisma libSQL adapter 连接 SQLite，避免 `better-sqlite3` native binding 在不同 Node/pnpm 环境下的编译问题。
+
+## Supabase 迁移准备
+
+后续迁移 Supabase 时，建议继续使用 Auth.js，Supabase 先作为 Postgres 数据库托管服务。
+
+本地 SQLite datasource：
+
+```prisma
+datasource db {
+  provider = "sqlite"
+}
+```
+
+迁移到 Supabase Postgres 时，可调整为：
+
+```prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+```
+
+并将 `.env.local` / 生产环境变量切换为 Supabase Postgres 连接串。
+
+## 目录结构
+
+```txt
+app/
+  api/
+    auth/[...nextauth]/route.ts  Auth.js 路由
+    chat/route.ts                AI 聊天接口
+  page.tsx                       首页聊天 UI
+agent/                           root agent 与 subagents
+tool/                            GitHub Trending / arXiv 工具
+component/                       UI 组件
+lib/                             模型、数据库、抓取工具
+prisma/schema.prisma             Prisma 数据模型
+docs/login.md                    登录与数据库开发文档
+```
+
+## 注意事项
+
+- 不要提交 `.env.local`。
+- 不要提交本地 SQLite 数据库文件 `dev.db`。
+- GitHub OAuth callback URL 必须和当前访问域名匹配。
+- 如果改动了 `prisma/schema.prisma`，需要重新执行：
+
+```bash
+pnpm exec prisma generate
+pnpm exec prisma db push
+```
