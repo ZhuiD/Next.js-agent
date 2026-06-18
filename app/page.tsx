@@ -1,6 +1,7 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
+import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ChatInput from '@/component/chat-input';
@@ -18,6 +19,7 @@ const SUGGESTIONS = [
 ];
 
 export default function Page() {
+  const router = useRouter();
   const { status, sendMessage, messages, stop } =
     useChat<AppUIMessage>();
   const { contentRef, isAtBottom, scrollToBottom } =
@@ -26,15 +28,30 @@ export default function Page() {
   const isBusy = status === 'streaming' || status === 'submitted';
   const isEmpty = messages.length === 0;
 
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.replace('/login');
+    router.refresh();
+  }
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 pb-32 pt-10">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">
-          GitTrendInsight & Research Agent
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          一句话告诉我：你想看 GitHub 趋势，还是想做某个方向的文献调研。
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            GitTrendInsight & Research Agent
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            一句话告诉我：你想看 GitHub 趋势，还是想做某个方向的文献调研。
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="shrink-0 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900"
+        >
+          退出登录
+        </button>
       </header>
 
       {isEmpty && (
