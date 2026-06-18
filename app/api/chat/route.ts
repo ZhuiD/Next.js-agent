@@ -5,30 +5,34 @@ import {
 } from 'ai';
 import { createRootAgent } from '@/agent/root-agent';
 import type { AppUIMessage } from '@/agent/ui-messages';
+import { authContext } from '@/lib/auth/context';
+import { runWithAuth } from '@/lib/auth/with-auth';
 
 // 长一些的超时，给 LLM + subagent + scraping/arxiv 留余地
 export const maxDuration = 60;
+export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
-  const { messages } = await request.json();
+  return runWithAuth(request, async session => {
+    const { messages } = await request.json();
 
-  const stream = createUIMessageStream<AppUIMessage>({
-    execute: async ({ writer }) => {
-      // experimental_context 由 agent 透传给所有 tool。
-      // subagent-as-tool 的 execute 会通过 ctx.writer 把自己的 UI stream
-      // merge 到这个主 writer。
-      const agent = createRootAgent({ writer });
+    const stream = createUIMessageStream<AppUIMessage>({
+      execute: async ({ writer }) => {
+        // 流式 execute 可能在独立 async 上下文触发，再 bind 一次确保 getCurrentUser() 可用
+        await authContext.run(session, async () => {
+          const agent = createRootAgent({ writer });
 
-      const modelMessages = await convertToModelMessages(messages);
+          const modelMessages = await convertToModelMessages(messages);
 
-      const result = await agent.stream({
-        messages: modelMessages,
-      });
+          const result = await agent.stream({
+            messages: modelMessages,
+          });
 
-      // 把主 agent 自己的 stream 也 merge 进去（路由文本 + tool calls + finish）。
-      writer.merge(result.toUIMessageStream());
-    },
+          writer.merge(result.toUIMessageStream());
+        });
+      },
+    });
+
+    return createUIMessageStreamResponse({ stream });
   });
-
-  return createUIMessageStreamResponse({ stream });
 }
