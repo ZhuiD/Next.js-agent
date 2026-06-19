@@ -18,7 +18,7 @@
 - Auth.js / NextAuth v5
 - Prisma 7
 - SQLite，本地使用 `file:./dev.db`
-- DashScope OpenAI-compatible API，默认模型 `qwen-plus`
+- DashScope OpenAI-compatible API，模型通过 `DASHSCOPE_MODEL` 配置
 
 ## 功能概览
 
@@ -73,8 +73,8 @@ cp .env.local.example .env.local
 # 阿里云百炼 DashScope API Key
 DASHSCOPE_API_KEY=sk-xxx
 
-# 可选：默认 qwen-plus
-# DASHSCOPE_MODEL=qwen-plus
+# 指定模型
+DASHSCOPE_MODEL=qwen-plus
 
 # 本地 SQLite 数据库
 DATABASE_URL="file:./dev.db"
