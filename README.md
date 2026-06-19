@@ -161,6 +161,12 @@ schema.prisma 是数据库设计图，prisma db push 是把设计图应用到真
 pnpm dev
 ```
 
+如果 GitHub OAuth 回调时报 `UND_ERR_CONNECT_TIMEOUT`，通常是本地 Node.js 服务端访问 GitHub 超时。使用代理时，可以让启动开发服务器的终端显式走 HTTP/HTTPS 代理：
+
+```bash
+HTTPS_PROXY=http://127.0.0.1:你的端口 HTTP_PROXY=http://127.0.0.1:你的端口 pnpm dev
+```
+
 打开：
 
 ```txt
