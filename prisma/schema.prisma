@@ -13,9 +13,11 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
+  plan          String    @default("free") // "free" | "pro" | "admin"
   accounts      Account[]
   sessions      Session[]
   chats         Chat[]
+  rateLimit     RateLimit?
 }
 
 model Account {
@@ -75,4 +77,14 @@ model Message {
   chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
   @@index([chatId, createdAt])
+}
+
+// 每个用户一条记录，记录当前时间窗口内的请求次数
+// 用于实现"每小时最多 N 次"的滑动窗口限流
+model RateLimit {
+  userId      String   @id
+  count       Int      @default(0)
+  windowStart DateTime // 当前计数窗口的起始时间
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
