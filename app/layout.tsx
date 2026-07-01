@@ -15,7 +15,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className="bg-zinc-50 text-zinc-900 antialiased">
+      <body className="h-dvh overflow-hidden bg-zinc-50 text-zinc-900 antialiased">
         <AuthSessionProvider>{children}</AuthSessionProvider>
       </body>
     </html>
