@@ -13,8 +13,8 @@ export default function ResearchDisclaimer() {
 
       <p className="mb-2 leading-relaxed">
         以上结果<strong>仅基于 arXiv 预印本</strong>，请<strong>不要完全依赖本
-        agent</strong> 替代严肃的文献调研。它适合"快速摸底"，<strong
-        >不适合"系统性综述"</strong
+        agent</strong> 替代严肃的文献调研。它适合「快速摸底」，<strong
+        >不适合「系统性综述」</strong
         >。
       </p>
 
@@ -27,10 +27,10 @@ export default function ResearchDisclaimer() {
             只覆盖 arXiv，<strong>期刊论文、IEEE/ACM/Springer 闭源出版社论文搜不到</strong>
           </li>
           <li>
-            不支持"按 CVPR/NeurIPS 等顶会精确过滤"
+            不支持「按 CVPR/NeurIPS 等顶会精确过滤」
           </li>
           <li>
-            不支持"引用网络"（看一篇论文引用了谁/被谁引用）
+            不支持「引用网络」（看一篇论文引用了谁/被谁引用）
           </li>
           <li>
             只能看摘要，<strong>看不了 PDF 全文</strong>
@@ -124,7 +124,7 @@ export default function ResearchDisclaimer() {
             >
               AMiner
             </a>{' '}
-            补期刊论文与跨学科文献，按"Since 20xx"过滤近期
+            补期刊论文与跨学科文献，按「Since 20xx」过滤近期
           </li>
 
           <li>
@@ -133,8 +133,8 @@ export default function ResearchDisclaimer() {
           </li>
 
           <li>
-            <strong>找配套代码</strong>：可继续问本 agent "搜 GitHub 上
-            xxx-papers / awesome-xxx-papers 仓库"
+            <strong>找配套代码</strong>：可继续问本 agent「搜 GitHub 上
+            xxx-papers / awesome-xxx-papers 仓库」
           </li>
         </ol>
       </details>
