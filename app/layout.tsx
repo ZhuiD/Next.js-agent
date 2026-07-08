@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import AuthSessionProvider from '@/component/session-provider';
 
 export const metadata: Metadata = {
   title: 'GitTrendInsight Agent',
@@ -14,7 +15,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className="bg-zinc-50 text-zinc-900 antialiased">{children}</body>
+      <body className="h-dvh overflow-hidden bg-zinc-50 text-zinc-900 antialiased">
+        <AuthSessionProvider>{children}</AuthSessionProvider>
+      </body>
     </html>
   );
 }

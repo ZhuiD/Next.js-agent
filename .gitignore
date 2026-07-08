@@ -37,3 +37,8 @@ next-env.d.ts
 # persistence
 .chats
 .streams
+dev.db
+dev.db-*
+prisma/dev.db
+prisma/dev.db-*
+generated/

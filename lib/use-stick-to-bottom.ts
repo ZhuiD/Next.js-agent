@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 /**
  * "Stick to bottom" 页面级滚动行为（ChatGPT / Claude / Cursor 都是这套）：
@@ -32,11 +32,11 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(
   // ref 镜像，避免 observer 回调读到陈旧 state
   const isAtBottomRef = useRef(true);
 
-  const computeAtBottom = () => {
+  const computeAtBottom = useCallback(() => {
     const root = document.documentElement;
     const distance = root.scrollHeight - root.scrollTop - window.innerHeight;
     return distance <= threshold;
-  };
+  }, [threshold]);
 
   const scrollToBottom = () => {
     window.scrollTo({ top: document.documentElement.scrollHeight });
@@ -84,7 +84,7 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(
       mo.disconnect();
       ro.disconnect();
     };
-  }, [threshold]);
+  }, [computeAtBottom]);
 
   return { contentRef, isAtBottom, scrollToBottom };
 }
