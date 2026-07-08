@@ -15,8 +15,9 @@ export default function Page() {
   // chatKey 变化会强制 ChatArea 重新挂载，从而让 useChat 用新的 id + initialMessages 初始化
   const [chatKey, setChatKey] = useState(0);
 
-  // 控制侧边栏刷新：每次发第一条消息后 +1，触发 sidebar 重新拉取列表
-  const [sidebarRefresh, setSidebarRefresh] = useState(0);
+  // 两类刷新分开：会话列表不需要每次请求结束都重拉，额度则需要。
+  const [conversationRefresh, setConversationRefresh] = useState(0);
+  const [quotaRefresh, setQuotaRefresh] = useState(0);
 
   // 点击侧边栏历史对话
   async function handleSelectChat(id: string) {
@@ -49,7 +50,11 @@ export default function Page() {
 
   // ChatArea 发出第一条消息后通知侧边栏刷新
   function handleFirstMessage() {
-    setSidebarRefresh(n => n + 1);
+    setConversationRefresh(n => n + 1);
+  }
+
+  function handleRequestSettled() {
+    setQuotaRefresh(n => n + 1);
   }
 
   return (
@@ -58,7 +63,8 @@ export default function Page() {
         selectedId={chatId}
         onSelect={handleSelectChat}
         onNewChat={handleNewChat}
-        refreshTrigger={sidebarRefresh}
+        conversationRefreshTrigger={conversationRefresh}
+        quotaRefreshTrigger={quotaRefresh}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
@@ -78,6 +84,7 @@ export default function Page() {
           chatId={chatId}
           initialMessages={initialMessages}
           onFirstMessage={handleFirstMessage}
+          onRequestSettled={handleRequestSettled}
         />
       </main>
     </div>

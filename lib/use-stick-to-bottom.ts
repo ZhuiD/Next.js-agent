@@ -3,20 +3,21 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 /**
- * "Stick to bottom" 页面级滚动行为（ChatGPT / Claude / Cursor 都是这套）：
+ * "Stick to bottom" 容器级滚动行为：
  *
  * - 内容增高时，**只要用户当前在底部附近**（< thresholdPx），自动滚到最底
  * - 用户主动往上滚 → `isAtBottom` 变 false，停止强制滚动，避免打扰阅读
  * - 用户手动滚回底部附近 → 自动跟随恢复
  *
- * 适用于"页面整体滚动 + 底部 fixed 输入框"的布局（本项目即是）。
- * 监听 `window` 的滚动状态 + 给定容器 ref 的 DOM/尺寸变化。
+ * 适用于当前这种 app 布局：
+ * - body/page 固定高度并 overflow-hidden
+ * - 消息列表 div 自己 `overflow-y-auto`
+ *
+ * 所以这里监听和滚动的对象是 `contentRef.current`，不是 window。
  *
  * 用法：
  *   const { contentRef, isAtBottom, scrollToBottom } = useStickToBottom();
- *   <main>
- *     <div ref={contentRef}>{messages...}</div>
- *   </main>
+ *   <div ref={contentRef} className="overflow-y-auto">{messages...}</div>
  */
 export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(
   options: { thresholdPx?: number } = {},
@@ -32,14 +33,16 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(
   // ref 镜像，避免 observer 回调读到陈旧 state
   const isAtBottomRef = useRef(true);
 
-  const computeAtBottom = useCallback(() => {
-    const root = document.documentElement;
-    const distance = root.scrollHeight - root.scrollTop - window.innerHeight;
+  const computeAtBottom = useCallback((el: T) => {
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     return distance <= threshold;
   }, [threshold]);
 
   const scrollToBottom = () => {
-    window.scrollTo({ top: document.documentElement.scrollHeight });
+    const el = contentRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
     isAtBottomRef.current = true;
     setIsAtBottom(true);
   };
@@ -49,7 +52,7 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(
     if (!el) return;
 
     const onScroll = () => {
-      const atBottom = computeAtBottom();
+      const atBottom = computeAtBottom(el);
       if (atBottom !== isAtBottomRef.current) {
         isAtBottomRef.current = atBottom;
         setIsAtBottom(atBottom);
@@ -59,12 +62,11 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(
     // 内容增高时，若用户在底部就跟随。用 instant（不 smooth）避免和流式追加打架抖动
     const followIfNeeded = () => {
       if (isAtBottomRef.current) {
-        window.scrollTo({ top: document.documentElement.scrollHeight });
+        el.scrollTop = el.scrollHeight;
       }
     };
 
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll, { passive: true });
+    el.addEventListener('scroll', onScroll, { passive: true });
 
     // 内容区 DOM 子树变化（新消息、新工具卡片、流式追加的文本节点）
     const mo = new MutationObserver(followIfNeeded);
@@ -79,8 +81,7 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>(
     onScroll();
 
     return () => {
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
+      el.removeEventListener('scroll', onScroll);
       mo.disconnect();
       ro.disconnect();
     };

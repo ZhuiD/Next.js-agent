@@ -76,12 +76,15 @@ interface ChatAreaProps {
   initialMessages: AppUIMessage[];
   // 第一条消息发出后回调，通知侧边栏刷新列表
   onFirstMessage?: () => void;
+  // 请求完成或失败后回调，通知侧边栏刷新额度
+  onRequestSettled?: () => void;
 }
 
 export default function ChatArea({
   chatId,
   initialMessages,
   onFirstMessage,
+  onRequestSettled,
 }: ChatAreaProps) {
   const { status: authStatus } = useSession();
   const transport = useMemo(
@@ -102,6 +105,12 @@ export default function ChatArea({
     id: chatId,
     messages: initialMessages,
     transport,
+    onFinish: () => {
+      onRequestSettled?.();
+    },
+    onError: () => {
+      onRequestSettled?.();
+    },
     // AI SDK 会把 id 放进 POST body，后端 route.ts 里的 const { messages, id } = await request.json() 能读到
   });
   const { contentRef, isAtBottom, scrollToBottom } =
