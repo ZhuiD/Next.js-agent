@@ -4,19 +4,24 @@ export default function ChatInput({
   status,
   onSubmit,
   stop,
+  disabled = false,
+  placeholder = '例如：最近 24 小时最火的 AI 项目，用中文总结',
 }: {
   status: string;
   onSubmit: (text: string) => void;
   stop?: () => void;
+  disabled?: boolean;
+  placeholder?: string;
 }) {
   const [text, setText] = useState('');
   const isBusy = status === 'streaming' || status === 'submitted';
+  const isDisabled = disabled || isBusy;
 
   return (
     <form
       onSubmit={e => {
         e.preventDefault();
-        if (text.trim() === '' || isBusy) return;
+        if (text.trim() === '' || isDisabled) return;
         onSubmit(text);
         setText('');
       }}
@@ -25,8 +30,8 @@ export default function ChatInput({
       <div className="flex w-full items-center gap-2">
         <input
           className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-zinc-500 disabled:bg-zinc-100"
-          placeholder="例如：最近 24 小时最火的 AI 项目，用中文总结"
-          disabled={isBusy}
+          placeholder={placeholder}
+          disabled={isDisabled}
           value={text}
           onChange={e => setText(e.target.value)}
         />
@@ -41,7 +46,7 @@ export default function ChatInput({
         ) : (
           <button
             type="submit"
-            disabled={text.trim() === ''}
+            disabled={disabled || text.trim() === ''}
             className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
           >
             发送
