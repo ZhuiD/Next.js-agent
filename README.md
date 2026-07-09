@@ -5,8 +5,8 @@
 - GitHub Trending 趋势项目分析
 - arXiv 论文检索与中文调研报告
 - GitHub OAuth 登录
-- SQLite 本地数据库持久化用户、会话和消息
-- 后续迁移到 Supabase Postgres 的 Prisma 数据模型基础
+- Supabase Postgres 持久化用户、会话、消息和限流状态
+- Prisma Client 生成物独立输出到 `generated/prisma`
 
 ## 技术栈
 
@@ -17,7 +17,8 @@
 - Vercel AI SDK
 - Auth.js / NextAuth v5
 - Prisma 7
-- SQLite，本地使用 `file:./dev.db`
+- Supabase Postgres / PostgreSQL
+- `@prisma/adapter-pg`
 - DashScope OpenAI-compatible API，模型通过 `DASHSCOPE_MODEL` 配置
 
 ## 功能概览
@@ -76,8 +77,9 @@ DASHSCOPE_API_KEY=sk-xxx
 # 指定模型
 DASHSCOPE_MODEL=qwen-plus
 
-# 本地 SQLite 数据库
-DATABASE_URL="file:./dev.db"
+# Supabase Postgres
+DATABASE_URL="postgresql://postgres.xxx:[YOUR-PASSWORD]@aws-0-region.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
+DIRECT_URL="postgresql://postgres.xxx:[YOUR-PASSWORD]@aws-0-region.pooler.supabase.com:5432/postgres?sslmode=require"
 
 # Auth.js
 AUTH_SECRET="dev-secret"
@@ -131,16 +133,19 @@ AUTH_GITHUB_SECRET="Client Secret"
 ### 4. 生成 Prisma Client
 
 ```bash
-pnpm exec prisma generate
+pnpm generate
 ```
+
+项目的 Prisma Client 输出目录是 `generated/prisma`，该目录不会提交到 Git。
+`pnpm build` 会先自动执行 `prisma generate`，避免干净部署环境里缺少生成物。
 
 ### 5. 同步数据库表结构
 
 ```bash
-pnpm exec prisma db push
+pnpm exec prisma migrate deploy
 ```
 
-这一步会根据 `prisma/schema.prisma` 在本地 SQLite 数据库中创建表，包括：
+这一步会根据 `prisma/migrations` 在 Postgres 数据库中创建表，包括：
 
 - `User`
 - `Account`
@@ -148,11 +153,12 @@ pnpm exec prisma db push
 - `VerificationToken`
 - `Chat`
 - `Message`
+- `RateLimit`
 
 可以理解为：
 
 ```txt
-schema.prisma 是数据库设计图，prisma db push 是把设计图应用到真实数据库。
+schema.prisma 是数据库设计图，migrations 是已记录的施工步骤，migrate deploy 是把步骤应用到真实数据库。
 ```
 
 ### 6. 启动开发服务器
@@ -189,47 +195,73 @@ pnpm start
 pnpm exec tsc --noEmit
 
 # 生成 Prisma Client
-pnpm exec prisma generate
+pnpm generate
 
-# 同步数据库 schema 到本地 SQLite
-pnpm exec prisma db push
+# 将已提交的迁移应用到 Postgres
+pnpm exec prisma migrate deploy
 ```
 
 ## 数据库说明
 
-当前本地开发使用 SQLite：
+当前项目使用 Postgres：
 
 ```env
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="postgresql://..."
+DIRECT_URL="postgresql://..."
 ```
 
-SQLite 数据库文件 `dev.db` 会在执行 `prisma db push` 后自动创建。
+运行时代码通过 `DATABASE_URL` 连接数据库，见 `lib/prisma.ts`。
+Prisma CLI 执行迁移时优先使用 `DIRECT_URL`，见 `prisma.config.ts`。
 
-当前使用 Prisma libSQL adapter 连接 SQLite，避免 `better-sqlite3` native binding 在不同 Node/pnpm 环境下的编译问题。
+`DATABASE_URL` 通常走 Supabase pooler，适合应用运行时连接池；`DIRECT_URL` 直连数据库，适合迁移命令。
 
-## Supabase 迁移准备
+## Prisma Client 生成与部署
 
-后续迁移 Supabase 时，建议继续使用 Auth.js，Supabase 先作为 Postgres 数据库托管服务。
-
-本地 SQLite datasource：
+Prisma Client 不是手写代码，而是 Prisma 根据 `prisma/schema.prisma` 生成的类型安全数据库客户端。本项目的生成位置是：
 
 ```prisma
-datasource db {
-  provider = "sqlite"
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
 }
 ```
 
-迁移到 Supabase Postgres 时，可调整为：
+代码里会直接引用它：
+
+```ts
+import { PrismaClient } from '@/generated/prisma/client';
+```
+
+因为 `generated/` 被 `.gitignore` 忽略，干净的 CI / Vercel / Docker 构建环境刚拉代码时没有这个目录。如果不先执行 `prisma generate`，构建会在类型检查或打包时因为找不到 `@/generated/prisma/client` 失败。
+
+为避免这个问题，`package.json` 的构建脚本已改为：
+
+```json
+"build": "prisma generate && next build"
+```
+
+也可以手动执行：
+
+```bash
+pnpm generate
+```
+
+## Supabase / Postgres 说明
+
+当前 datasource 已经是 Postgres：
 
 ```prisma
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 ```
 
-并将 `.env.local` / 生产环境变量切换为 Supabase Postgres 连接串。
+具体连接串由 `prisma.config.ts` 和环境变量注入，而不是写在 `schema.prisma` 里。Supabase 部署时需要配置：
+
+```env
+DATABASE_URL="postgresql://...pooler...?...sslmode=require"
+DIRECT_URL="postgresql://...direct...?...sslmode=require"
+```
 
 ## 目录结构
 
@@ -250,11 +282,11 @@ docs/login.md                    登录与数据库开发文档
 ## 注意事项
 
 - 不要提交 `.env.local`。
-- 不要提交本地 SQLite 数据库文件 `dev.db`。
+- 不要提交 `generated/`，部署构建会自动生成。
 - GitHub OAuth callback URL 必须和当前访问域名匹配。
 - 如果改动了 `prisma/schema.prisma`，需要重新执行：
 
 ```bash
-pnpm exec prisma generate
-pnpm exec prisma db push
+pnpm generate
+pnpm exec prisma migrate dev
 ```
