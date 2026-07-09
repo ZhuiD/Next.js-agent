@@ -41,6 +41,7 @@ interface RateLimitResult {
   limit: number;
   remaining: number;
   retryAfter?: number; // 距离窗口重置还有多少秒（超限时才有）
+  reservationWindowStart?: Date; // 本次扣费落在哪个窗口里，失败退款时用来避免退错窗口
 }
 
 export interface RateLimitStatus {
@@ -74,6 +75,7 @@ function buildAllowedResult(
     allowed: true,
     limit,
     remaining: Math.max(limit - record.count, 0),
+    reservationWindowStart: record.windowStart,
   };
 }
 
@@ -228,4 +230,29 @@ export async function checkUserRateLimit(
   }
 
   return buildBlockedResult(record, limit, now);
+}
+
+export async function refundUserRateLimit(
+  userId: string,
+  reservationWindowStart: Date,
+): Promise<boolean> {
+  // 这是“轻量退款”，只把刚才预占的一次计数从同一个窗口里扣回去。
+  //
+  // 为什么 WHERE 要带 windowStart？
+  // - 用户的限流记录只有一行，窗口过期后下一次请求会把 windowStart 重置成新窗口。
+  // - 如果失败回调来得很晚，不能把新窗口里的额度误减掉。
+  //
+  // 这一版还不是完整账本：它不能跨进程证明“同一个请求只退一次”。
+  // 真正需要审计、幂等、成本对账时，下一步应加 QuotaUsage 表记录 reserved/succeeded/refunded。
+  const refunded = await prisma.$queryRaw<RateLimitSqlRow[]>`
+    UPDATE "RateLimit"
+    SET "count" = GREATEST("count" - 1, 0)
+    WHERE
+      "userId" = ${userId}
+      AND "windowStart" = ${reservationWindowStart}
+      AND "count" > 0
+    RETURNING "count", "windowStart"
+  `;
+
+  return refunded.length > 0;
 }
