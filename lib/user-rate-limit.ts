@@ -6,14 +6,14 @@
 //    内存里的计数器无法共享，必须用外部存储（DB / Redis）。
 //
 // 2. 当前实现是什么窗口？
-//    固定窗口：每小时整点清零，用户可以在 :59 发20条、:01 又发20条，
-//              实际上两分钟内发了40条，绕过了限制。
-//    当前实现：从用户第一次请求开始计时，往后推1小时。
-//    它不是严格的 sliding log，但比“整点清零”更公平，也更容易用 SQLite 实现。
+//    从用户第一次请求开始计时，往后推 1 小时。
+//    它不是严格的 sliding log，但比“整点清零”更公平，也更容易展示 resetAt。
 //
-// 3. 为什么用 upsert？
-//    用户第一次请求时 RateLimit 表里没有记录，upsert 会自动创建；
-//    后续请求则更新已有记录。避免了"先查再判断再插入/更新"的竞态条件。
+// 3. 为什么用原子 SQL？
+//    限流本质是 read-modify-write：读 count、判断是否超限、再把 count + 1。
+//    如果在应用层分三步做，并发请求可能同时读到旧 count，然后都被放行。
+//    这里把“创建/重置/扣一次/返回新状态”交给 Postgres 的同一条写语句，
+//    让数据库用同一行上的写锁来串行化同一个用户的额度消费。
 
 import { prisma } from '@/lib/prisma';
 
@@ -28,6 +28,11 @@ const WINDOW_MS = 60 * 60 * 1000; // 1 小时，单位毫秒
 
 interface RateLimitRecord {
   count: number;
+  windowStart: Date;
+}
+
+interface RateLimitSqlRow {
+  count: number | bigint;
   windowStart: Date;
 }
 
@@ -52,6 +57,38 @@ export interface RateLimitStatus {
 
 function getPlanLimit(plan: string): number {
   return PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+}
+
+function normalizeSqlRow(row: RateLimitSqlRow): RateLimitRecord {
+  return {
+    count: Number(row.count),
+    windowStart: row.windowStart,
+  };
+}
+
+function buildAllowedResult(
+  record: RateLimitRecord,
+  limit: number,
+): RateLimitResult {
+  return {
+    allowed: true,
+    limit,
+    remaining: Math.max(limit - record.count, 0),
+  };
+}
+
+function buildBlockedResult(
+  record: RateLimitRecord,
+  limit: number,
+  now: Date,
+): RateLimitResult {
+  const resetAt = record.windowStart.getTime() + WINDOW_MS;
+  const retryAfter = Math.max(
+    1,
+    Math.ceil((resetAt - now.getTime()) / 1000),
+  );
+
+  return { allowed: false, limit, remaining: 0, retryAfter };
 }
 
 function buildRateLimitStatus(
@@ -136,45 +173,59 @@ export async function checkUserRateLimit(
   }
 
   const now = new Date();
+  const windowCutoff = new Date(now.getTime() - WINDOW_MS);
 
-  // upsert：有记录则读取，没有则以当前时间和 count=0 初始化
-  // 注意：这里分两步（先 upsert 初始化，再判断逻辑）是为了代码清晰，
-  // 生产级别可以用一条原子 SQL 语句，但 SQLite 下并发压力不大，这样够用。
-  const record = await prisma.rateLimit.upsert({
-    where: { userId },
-    create: {
-      userId,
-      count: 0,
-      windowStart: now,
-    },
-    update: {}, // 先不更新，拿到现有数据后再判断
-  });
+  // 这一条语句覆盖三种“允许通过”的情况：
+  // 1. 用户还没有 RateLimit 记录：INSERT count=1
+  // 2. 旧窗口已过期：重置 count=1，并把 windowStart 改成 now
+  // 3. 当前窗口未超限：count 原子 +1
+  //
+  // 关键点在 WHERE：
+  // - 如果当前窗口没过期且 count >= limit，DO UPDATE 会被跳过，RETURNING 返回空数组。
+  // - 并发请求写同一个 userId 时，Postgres 会锁住这一行；后一个 UPDATE 会等前一个提交后，
+  //   再基于最新 count 重新判断 WHERE，从而避免两个请求同时“看到还剩 1 次”。
+  //
+  // 用 tagged template 写 raw SQL，Prisma 会把变量作为参数传给数据库，避免字符串拼接注入。
+  const consumed = await prisma.$queryRaw<RateLimitSqlRow[]>`
+    INSERT INTO "RateLimit" ("userId", "count", "windowStart")
+    VALUES (${userId}, 1, ${now})
+    ON CONFLICT ("userId") DO UPDATE
+    SET
+      "count" = CASE
+        WHEN "RateLimit"."windowStart" <= ${windowCutoff} THEN 1
+        ELSE "RateLimit"."count" + 1
+      END,
+      "windowStart" = CASE
+        WHEN "RateLimit"."windowStart" <= ${windowCutoff} THEN ${now}
+        ELSE "RateLimit"."windowStart"
+      END
+    WHERE
+      "RateLimit"."windowStart" <= ${windowCutoff}
+      OR "RateLimit"."count" < ${limit}
+    RETURNING "count", "windowStart"
+  `;
 
-  const windowAge = now.getTime() - record.windowStart.getTime();
-  const windowExpired = windowAge >= WINDOW_MS;
-
-  if (windowExpired) {
-    // 时间窗口已过期，重置计数器，本次请求算第 1 次
-    await prisma.rateLimit.update({
-      where: { userId },
-      data: { count: 1, windowStart: now },
-    });
-    return { allowed: true, limit, remaining: limit - 1 };
+  if (consumed[0]) {
+    return buildAllowedResult(normalizeSqlRow(consumed[0]), limit);
   }
 
-  // 窗口还在有效期内
-  if (record.count >= limit) {
-    // 已超限，计算还需要等多久（窗口到期时间 - 现在）
-    const resetAt = record.windowStart.getTime() + WINDOW_MS;
-    const retryAfter = Math.ceil((resetAt - now.getTime()) / 1000);
-    return { allowed: false, limit, remaining: 0, retryAfter };
-  }
-
-  // 未超限，count + 1
-  await prisma.rateLimit.update({
+  // RETURNING 为空表示“已有当前窗口记录，并且已经达到 limit”。
+  // 再读一次只用于给前端算 retryAfter；这次读取不参与放行决策，所以不会引入超扣。
+  const record = await prisma.rateLimit.findUnique({
     where: { userId },
-    data: { count: { increment: 1 } },
+    select: { count: true, windowStart: true },
   });
 
-  return { allowed: true, limit, remaining: limit - record.count - 1 };
+  if (!record) {
+    // 理论上不会发生：上面的 INSERT 失败且又读不到记录，通常代表数据库状态异常。
+    // 这里保守拒绝，避免在状态不明时放行昂贵的 LLM 请求。
+    return {
+      allowed: false,
+      limit,
+      remaining: 0,
+      retryAfter: WINDOW_MS / 1000,
+    };
+  }
+
+  return buildBlockedResult(record, limit, now);
 }
