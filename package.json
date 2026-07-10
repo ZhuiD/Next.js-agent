@@ -12,7 +12,7 @@
     "test": "vitest",
     "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:ci": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build"
+    "test:ci": "pnpm lint && pnpm generate && pnpm typecheck && pnpm test:unit && pnpm build"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.49",

@@ -15,8 +15,12 @@ concurrency:
 
 jobs:
   quality:
-    name: Lint, typecheck, and unit tests
+    name: Lint, typecheck, unit tests, and build
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=ci&sslmode=disable
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=ci&sslmode=disable
+      DASHSCOPE_MODEL: ci-model
 
     steps:
       - name: Checkout repository
@@ -45,11 +49,71 @@ jobs:
       # it does not connect to the database.
       - name: Generate Prisma client
         run: pnpm generate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=ci
 
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Unit tests
         run: pnpm test:unit
+
+      - name: Build
+        run: pnpm build
+
+  integration:
+    name: Database integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=codex_test&sslmode=disable
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=codex_test&sslmode=disable
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=codex_test&sslmode=disable
+      ALLOW_TEST_DATABASE_RESET: 'true'
+      DASHSCOPE_MODEL: ci-model
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm generate
+
+      - name: Create test schema
+        run: echo 'CREATE SCHEMA IF NOT EXISTS "codex_test";' | pnpm exec prisma db execute --stdin
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public&sslmode=disable
+          DIRECT_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public&sslmode=disable
+
+      - name: Apply database migrations
+        run: pnpm exec prisma migrate deploy
+
+      - name: Integration tests
+        run: pnpm test:integration
