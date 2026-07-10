@@ -55,9 +55,9 @@ tests. Avoid mocking Prisma for concurrency, raw SQL, transactions, cascade dele
 quota consumption, or refunds.
 
 Integration tests must never use `.env.local` or the normal `DATABASE_URL`.
-Use `.env.test` with `TEST_DATABASE_URL`, include `schema=codex_test`, and set
-`ALLOW_TEST_DATABASE_RESET="true"` because integration tests are allowed to delete
-all rows in the test database schema.
+Use `.env.test` with `TEST_DATABASE_URL` pointing at a disposable database named
+`codex_test`, and set `ALLOW_TEST_DATABASE_RESET="true"` because integration tests
+are allowed to delete all rows in that test database.
 
 When adding database integration tests, put shared cleanup and factories under
 `tests/integration/utils/` instead of duplicating setup in every test file.

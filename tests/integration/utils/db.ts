@@ -2,11 +2,11 @@ import { describe, expect } from 'vitest';
 import type { PrismaClient, User } from '@/generated/prisma/client';
 
 const resetAllowed = process.env.ALLOW_TEST_DATABASE_RESET === 'true';
-const testSchema = getDatabaseSchema(process.env.TEST_DATABASE_URL);
-const usesDedicatedTestSchema = testSchema === 'codex_test';
+const testDatabaseName = getDatabaseName(process.env.TEST_DATABASE_URL);
+const usesDedicatedTestDatabase = testDatabaseName === 'codex_test';
 
 export const hasTestDatabase = Boolean(
-  process.env.TEST_DATABASE_URL && resetAllowed && usesDedicatedTestSchema,
+  process.env.TEST_DATABASE_URL && resetAllowed && usesDedicatedTestDatabase,
 );
 
 export const describeWithTestDatabase = hasTestDatabase
@@ -18,18 +18,19 @@ export function explainSkippedIntegrationTests() {
     return 'ALLOW_TEST_DATABASE_RESET must be "true" because integration tests delete test data.';
   }
 
-  if (process.env.TEST_DATABASE_URL && !usesDedicatedTestSchema) {
-    return 'TEST_DATABASE_URL must include ?schema=codex_test so integration tests cannot reset the public schema.';
+  if (process.env.TEST_DATABASE_URL && !usesDedicatedTestDatabase) {
+    return 'TEST_DATABASE_URL must point at a disposable database named codex_test because integration tests delete test data.';
   }
 
-  return 'TEST_DATABASE_URL is not configured. Copy .env.test.example to .env.test and point it at a disposable Postgres database.';
+  return 'TEST_DATABASE_URL is not configured. Copy .env.test.example to .env.test and point it at a disposable Postgres database named codex_test.';
 }
 
-function getDatabaseSchema(databaseUrl: string | undefined) {
+function getDatabaseName(databaseUrl: string | undefined) {
   if (!databaseUrl) return null;
 
   try {
-    return new URL(databaseUrl).searchParams.get('schema');
+    const pathname = new URL(databaseUrl).pathname;
+    return pathname.replace(/^\//, '') || null;
   } catch {
     return null;
   }
