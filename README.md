@@ -199,6 +199,79 @@ pnpm generate
 
 # 将已提交的迁移应用到 Postgres
 pnpm exec prisma migrate deploy
+
+# 单元测试
+pnpm test:unit
+
+# 数据库集成测试，需要先配置 .env.test 和本地 codex_test 数据库
+pnpm test:integration
+
+# 浏览器 E2E 测试，首次换电脑需要先安装 Playwright 浏览器
+pnpm test:e2e
+
+# 本地质量检查：lint + generate + typecheck + unit + build
+pnpm test:ci
+```
+
+## 测试配置
+
+项目现在有三层测试：
+
+- Unit tests：测试纯函数、组件和轻量逻辑，使用 Vitest / Testing Library / MSW，不需要真实数据库。
+- Integration tests：测试 Prisma、Route Handler、鉴权边界和数据库行为，需要一个本地一次性 Postgres 测试库。
+- E2E tests：使用 Playwright 启动真实浏览器，测试页面交互和前端链路；默认 mock 浏览器侧 API，不会调用真实 Supabase、GitHub OAuth 或 LLM。
+
+### 数据库集成测试
+
+`.env.test` 是本地文件，不会提交到 Git。换电脑后复制模板：
+
+```bash
+cp .env.test.example .env.test
+```
+
+默认内容是：
+
+```env
+TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/codex_test?sslmode=disable"
+ALLOW_TEST_DATABASE_RESET="true"
+```
+
+注意：
+
+- `TEST_DATABASE_URL` 必须指向一个专门测试用的数据库，数据库名必须是 `codex_test`。
+- 不能把它指向 `.env.local` 里的 Supabase 正式库。
+- `ALLOW_TEST_DATABASE_RESET="true"` 是刻意要求显式打开的安全开关，因为集成测试会清空测试库里的表数据。
+
+本地第一次跑集成测试前，需要先创建 `codex_test` 数据库，并把 Prisma migrations 应用到这个测试库：
+
+```bash
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/codex_test?sslmode=disable" \
+DIRECT_URL="postgresql://postgres:postgres@localhost:5432/codex_test?sslmode=disable" \
+pnpm exec prisma migrate deploy
+```
+
+然后运行：
+
+```bash
+pnpm test:integration
+```
+
+GitHub Actions 里不需要你手动配置这些变量；CI 会自动启动临时 Postgres 容器，跑完销毁。
+
+### 浏览器 E2E 测试
+
+E2E 测试不需要 `.env.test`，也不需要真实 DashScope / Supabase / GitHub OAuth 密钥。`playwright.config.ts` 会给测试服务器注入安全的假环境变量，测试文件会 mock `/api/auth/session`、`/api/me`、`/api/conversations` 和 `/api/chat`。
+
+换电脑后第一次运行 Playwright，需要先安装浏览器：
+
+```bash
+pnpm exec playwright install chromium
+```
+
+然后运行：
+
+```bash
+pnpm test:e2e
 ```
 
 ## 数据库说明
