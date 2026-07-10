@@ -62,12 +62,19 @@ are allowed to delete all rows in that test database.
 When adding database integration tests, put shared cleanup and factories under
 `tests/integration/utils/` instead of duplicating setup in every test file.
 
+Playwright E2E tests should default to mocking browser-facing API boundaries such
+as NextAuth session, account summary, conversation reads, LLM streaming, and
+external services. Only hit a real database from E2E when the test explicitly
+provisions a disposable local test database, never from `.env.local` or Supabase
+production credentials.
+
 ## Commands
 
 Before considering a code change done, run the narrowest useful check:
 
 - `pnpm test:unit` for unit-only changes
 - `pnpm test:integration` for database and Route Handler behavior after configuring `.env.test`
+- `pnpm test:e2e` for browser-level app flows after installing Playwright browsers
 - `pnpm typecheck` after TypeScript or test typing changes
 - `pnpm lint` after normal code edits
 - `pnpm build` after Next.js, Prisma, env, or route changes
