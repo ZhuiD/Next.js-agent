@@ -20,15 +20,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.32.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -39,6 +39,14 @@ jobs:
       # Keep the first CI job secret-free so pull requests can run safely.
       - name: Lint
         run: pnpm lint
+
+      # TypeScript imports the generated Prisma client, so CI must create it
+      # before running tsc. Prisma generate only needs a valid URL shape here;
+      # it does not connect to the database.
+      - name: Generate Prisma client
+        run: pnpm generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=ci
 
       - name: Typecheck
         run: pnpm typecheck
