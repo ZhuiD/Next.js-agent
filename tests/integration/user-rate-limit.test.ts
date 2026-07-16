@@ -40,10 +40,44 @@ describeWithTestDatabase('user rate limit integration', () => {
     const record = await prisma.rateLimit.findUnique({
       where: { userId: user.id },
     });
+    const usages = await prisma.quotaUsage.findMany({
+      where: { userId: user.id },
+    });
 
     expect(allowed).toHaveLength(20);
     expect(blocked).toHaveLength(5);
     expect(record?.count).toBe(20);
+    expect(usages).toHaveLength(20);
+    expect(usages.every(usage => usage.status === 'RESERVED')).toBe(true);
+  });
+
+  test('deduplicates concurrent reservations for the same request id', async () => {
+    const user = await createTestUser(prisma, { plan: 'free' });
+
+    const results = await Promise.all(
+      Array.from({ length: 2 }, () =>
+        rateLimit.checkUserRateLimit(user.id, 'free', {
+          requestId: 'same-message',
+          chatId: 'same-chat',
+        }),
+      ),
+    );
+    const record = await prisma.rateLimit.findUnique({
+      where: { userId: user.id },
+    });
+    const usages = await prisma.quotaUsage.findMany({
+      where: { userId: user.id },
+    });
+
+    expect(results.filter(result => result.duplicate)).toHaveLength(1);
+    expect(results.filter(result => !result.duplicate)).toHaveLength(1);
+    expect(record?.count).toBe(1);
+    expect(usages).toHaveLength(1);
+    expect(usages[0]).toMatchObject({
+      requestId: 'same-message',
+      chatId: 'same-chat',
+      status: 'RESERVED',
+    });
   });
 
   test('resets an expired window before consuming the next quota', async () => {
@@ -76,20 +110,39 @@ describeWithTestDatabase('user rate limit integration', () => {
     const consumed = await rateLimit.checkUserRateLimit(user.id, 'free');
 
     expect(consumed.allowed).toBe(true);
+    expect(consumed.reservationId).toEqual(expect.any(String));
     expect(consumed.reservationWindowStart).toBeInstanceOf(Date);
 
     const refunded = await rateLimit.refundUserRateLimit(
       user.id,
-      consumed.reservationWindowStart!,
+      consumed.reservationId!,
+      'agent_stream_failed',
     );
     const recordAfterRefund = await prisma.rateLimit.findUnique({
       where: { userId: user.id },
     });
+    const usageAfterRefund = await prisma.quotaUsage.findUnique({
+      where: { id: consumed.reservationId! },
+    });
 
     expect(refunded).toBe(true);
     expect(recordAfterRefund?.count).toBe(0);
+    expect(usageAfterRefund).toMatchObject({
+      status: 'REFUNDED',
+      refundReason: 'agent_stream_failed',
+    });
+    expect(usageAfterRefund?.refundedAt).toBeInstanceOf(Date);
 
-    const staleWindowStart = consumed.reservationWindowStart!;
+    const duplicateRefund = await rateLimit.refundUserRateLimit(
+      user.id,
+      consumed.reservationId!,
+      'duplicate_callback',
+    );
+    expect(duplicateRefund).toBe(false);
+
+    const staleReservation = await rateLimit.checkUserRateLimit(user.id, 'free', {
+      requestId: 'stale-refund-message',
+    });
     const newWindowStart = new Date(Date.now() + 60 * 60 * 1000);
     await prisma.rateLimit.update({
       where: { userId: user.id },
@@ -98,15 +151,59 @@ describeWithTestDatabase('user rate limit integration', () => {
 
     const staleRefund = await rateLimit.refundUserRateLimit(
       user.id,
-      staleWindowStart,
+      staleReservation.reservationId!,
+      'late_agent_failure',
     );
     const recordAfterStaleRefund = await prisma.rateLimit.findUnique({
       where: { userId: user.id },
+    });
+    const staleUsage = await prisma.quotaUsage.findUnique({
+      where: { id: staleReservation.reservationId! },
     });
 
     expect(staleRefund).toBe(false);
     expect(recordAfterStaleRefund?.count).toBe(3);
     expect(recordAfterStaleRefund?.windowStart).toEqual(newWindowStart);
+    expect(staleUsage?.status).toBe('RESERVED');
+  });
+
+  test('finalizes a reservation as consumed only once', async () => {
+    const user = await createTestUser(prisma, { plan: 'free' });
+    const reservation = await rateLimit.checkUserRateLimit(user.id, 'free', {
+      requestId: 'completed-message',
+    });
+
+    const firstConsume = await rateLimit.confirmUserQuotaUsage(
+      user.id,
+      reservation.reservationId!,
+      'response_completed',
+    );
+    const secondConsume = await rateLimit.confirmUserQuotaUsage(
+      user.id,
+      reservation.reservationId!,
+      'duplicate_finish_callback',
+    );
+    const refundAfterConsume = await rateLimit.refundUserRateLimit(
+      user.id,
+      reservation.reservationId!,
+      'late_error_callback',
+    );
+    const record = await prisma.rateLimit.findUnique({
+      where: { userId: user.id },
+    });
+    const usage = await prisma.quotaUsage.findUnique({
+      where: { id: reservation.reservationId! },
+    });
+
+    expect(firstConsume).toBe(true);
+    expect(secondConsume).toBe(false);
+    expect(refundAfterConsume).toBe(false);
+    expect(record?.count).toBe(1);
+    expect(usage).toMatchObject({
+      status: 'CONSUMED',
+      consumeReason: 'response_completed',
+    });
+    expect(usage?.consumedAt).toBeInstanceOf(Date);
   });
 
   test('admin users are allowed without creating a RateLimit row', async () => {
@@ -116,10 +213,14 @@ describeWithTestDatabase('user rate limit integration', () => {
     const record = await prisma.rateLimit.findUnique({
       where: { userId: user.id },
     });
+    const usageCount = await prisma.quotaUsage.count({
+      where: { userId: user.id },
+    });
 
     expect(result.allowed).toBe(true);
     expect(result.remaining).toBe(Infinity);
     expect(record).toBeNull();
+    expect(usageCount).toBe(0);
   });
 });
 

@@ -43,6 +43,7 @@ export async function cleanupDatabase(prisma: PrismaClient) {
   // Some relations also cascade, but explicit cleanup keeps test isolation easy to reason about.
   await prisma.message.deleteMany();
   await prisma.chat.deleteMany();
+  await prisma.quotaUsage.deleteMany();
   await prisma.rateLimit.deleteMany();
   await prisma.session.deleteMany();
   await prisma.account.deleteMany();

@@ -8,16 +8,17 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String       @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?      @unique
   emailVerified DateTime?
   image         String?
-  plan          String    @default("free") // "free" | "pro" | "admin"
+  plan          String       @default("free") // "free" | "pro" | "admin"
   accounts      Account[]
   sessions      Session[]
   chats         Chat[]
   rateLimit     RateLimit?
+  quotaUsages   QuotaUsage[]
 }
 
 model Account {
@@ -87,4 +88,35 @@ model RateLimit {
   windowStart DateTime // 当前计数窗口的起始时间
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum QuotaUsageStatus {
+  RESERVED
+  CONSUMED
+  REFUNDED
+}
+
+// RateLimit 是当前窗口的快速计数快照；QuotaUsage 是每次请求的可审计流水。
+// chatId 不设外键：额度在 Chat 创建前就要预占，而且删除聊天记录不应抹掉历史账目。
+model QuotaUsage {
+  id            String           @id @default(cuid())
+  userId        String
+  requestId     String           @unique // 用户消息 id，作为同一次请求的幂等键
+  chatId        String?
+  plan          String
+  amount        Int              @default(1)
+  limit         Int
+  status        QuotaUsageStatus @default(RESERVED)
+  windowStart   DateTime
+  consumeReason String?
+  refundReason  String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  consumedAt    DateTime?
+  refundedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
