@@ -10,6 +10,7 @@ import type { AppUIMessage } from '@/agent/ui-messages';
 import { prisma } from '@/lib/prisma';
 import {
   checkUserRateLimit,
+  confirmUserQuotaUsage,
   refundUserRateLimit,
 } from '@/lib/user-rate-limit';
 
@@ -129,21 +130,28 @@ async function createChatIfMissing(
 
 async function saveMessage(chatId: string, message: AppUIMessage) {
   const content = getTextContent(message);
+  const partsJson = JSON.stringify(message.parts);
 
-  await prisma.message.upsert({
-    where: { id: message.id },
-    update: {
-      content,
-      partsJson: JSON.stringify(message.parts),
-    },
-    create: {
-      id: message.id,
-      chatId,
-      role: message.role,
-      content,
-      partsJson: JSON.stringify(message.parts),
-    },
+  // message.id 由客户端提交，不能只按这个全局主键 upsert：攻击者如果猜到
+  // 其他会话的消息 id，普通 upsert 的 update 分支会改写别人的消息。
+  // 先把更新范围限制在当前 chat；不存在时再 create，跨 chat 的 id 冲突
+  // 会由主键约束拒绝，而不会触碰原消息。
+  const updated = await prisma.message.updateMany({
+    where: { id: message.id, chatId },
+    data: { content, partsJson },
   });
+
+  if (updated.count === 0) {
+    await prisma.message.create({
+      data: {
+        id: message.id,
+        chatId,
+        role: message.role,
+        content,
+        partsJson,
+      },
+    });
+  }
 }
 
 export async function POST(request: Request) {
@@ -193,7 +201,19 @@ export async function POST(request: Request) {
 
   // 限流检查：在调用 LLM 之前，先确认用户是否还有剩余配额
   // 这样超限时不会浪费 LLM Token
-  const rateLimit = await checkUserRateLimit(userId, plan);
+  const rateLimit = await checkUserRateLimit(userId, plan, {
+    // 用户消息 id 同时是额度流水的幂等键。同一请求被浏览器或网关重试时，
+    // 数据库唯一索引会阻止重复扣次数。
+    requestId: latestMessage.id,
+    chatId,
+  });
+
+  if (rateLimit.duplicate) {
+    return Response.json(
+      { error: '该请求正在处理或已经完成，请勿重复提交' },
+      { status: 409 },
+    );
+  }
 
   if (!rateLimit.allowed) {
     // HTTP 429 = Too Many Requests
@@ -215,18 +235,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const quotaReservationWindowStart = rateLimit.reservationWindowStart;
+  const quotaReservationId = rateLimit.reservationId;
   let quotaRefundPromise: Promise<void> | null = null;
   let streamFailed = false;
 
   async function refundQuotaOnce(reason: string) {
-    if (!quotaReservationWindowStart) return;
+    if (!quotaReservationId) return;
 
     // 同一次 route invocation 里可能同时遇到 execute catch、error chunk、onError 兜底。
-    // 共用同一个 promise，保证最多只把这次预占额度退回一次。
+    // 共用同一个 promise 避免重复工作；数据库中的 RESERVED -> REFUNDED
+    // 状态条件则负责跨实例、跨进程的真正幂等。
     quotaRefundPromise ??= refundUserRateLimit(
       userId,
-      quotaReservationWindowStart,
+      quotaReservationId,
+      reason,
     )
       .then(refunded => {
         if (!refunded) {
@@ -239,7 +261,7 @@ export async function POST(request: Request) {
       })
       .catch(error => {
         // 退款失败不能再抛进 stream，否则用户会看到第二个错误；
-        // 这里交给日志，后续如果做 QuotaUsage 表再补后台补偿任务。
+        // QuotaUsage 会保留 RESERVED 状态，后续可以由补偿任务重新处理。
         console.error('Quota refund failed', {
           reason,
           chatId,
@@ -249,6 +271,35 @@ export async function POST(request: Request) {
       });
 
     await quotaRefundPromise;
+  }
+
+  async function consumeQuota(reason: string) {
+    if (!quotaReservationId) return;
+
+    try {
+      const consumed = await confirmUserQuotaUsage(
+        userId,
+        quotaReservationId,
+        reason,
+      );
+
+      if (!consumed) {
+        console.warn('Quota consumption finalization skipped', {
+          reason,
+          chatId,
+          userId,
+        });
+      }
+    } catch (error) {
+      // 模型已经成功执行时，账本确认失败不能再给用户制造第二次流错误。
+      // 留在 RESERVED 的流水可以被监控发现并由补偿任务确认。
+      console.error('Quota consumption finalization failed', {
+        reason,
+        chatId,
+        userId,
+        error,
+      });
+    }
   }
 
   async function handleStreamFailure(reason: string) {
@@ -326,9 +377,15 @@ export async function POST(request: Request) {
     },
     onFinish: async ({ responseMessage, isAborted }) => {
       // 用户主动 abort 时，模型可能已经消耗了上游 token，也可能已经输出了部分内容；
-      // 这类产品规则先不在轻量退款里处理，后续可用 QuotaUsage 做更细的状态机。
-      if (isAborted || streamFailed) return;
+      // 当前产品规则仍然计费，但在流水里单独记录原因，后续可以据数据调整规则。
+      if (streamFailed) return;
 
+      if (isAborted) {
+        await consumeQuota('user_aborted');
+        return;
+      }
+
+      await consumeQuota('response_completed');
       await saveMessage(chatId, responseMessage);
     },
     onError: handleStreamError,

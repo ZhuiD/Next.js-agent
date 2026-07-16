@@ -159,10 +159,116 @@ describeWithTestDatabase('chat route integration', () => {
     const rateLimit = await prisma.rateLimit.findUnique({
       where: { userId: user.id },
     });
+    const usageCount = await prisma.quotaUsage.count({
+      where: { userId: user.id },
+    });
 
     expect(response.status).toBe(429);
     expect(chat).toBeNull();
     expect(rateLimit?.count).toBe(20);
+    expect(usageCount).toBe(0);
+    expect(mockedCreateRootAgent).not.toHaveBeenCalled();
+  });
+
+  test('returns 409 for a duplicate message without consuming quota again', async () => {
+    const user = await createTestUser(prisma, { id: 'user-a', plan: 'free' });
+    const windowStart = new Date();
+    await prisma.rateLimit.create({
+      data: { userId: user.id, count: 1, windowStart },
+    });
+    await prisma.quotaUsage.create({
+      data: {
+        id: 'usage-a',
+        userId: user.id,
+        requestId: 'msg-a',
+        chatId: 'chat-a',
+        plan: 'free',
+        limit: 20,
+        windowStart,
+      },
+    });
+    mockSession(user.id);
+
+    const response = await chatRoute.POST(
+      chatRequest({
+        id: 'chat-a',
+        messages: [
+          {
+            id: 'msg-a',
+            role: 'user',
+            parts: [{ type: 'text', text: '这是一条重复请求' }],
+          },
+        ],
+      }),
+    );
+    const rateLimit = await prisma.rateLimit.findUnique({
+      where: { userId: user.id },
+    });
+    const usageCount = await prisma.quotaUsage.count({
+      where: { userId: user.id },
+    });
+
+    expect(response.status).toBe(409);
+    await expect(readJson(response)).resolves.toEqual({
+      error: '该请求正在处理或已经完成，请勿重复提交',
+    });
+    expect(rateLimit?.count).toBe(1);
+    expect(usageCount).toBe(1);
+    expect(mockedCreateRootAgent).not.toHaveBeenCalled();
+  });
+
+  test('does not overwrite a message that belongs to another chat', async () => {
+    const user = await createTestUser(prisma, { id: 'user-a', plan: 'free' });
+    const otherUser = await createTestUser(prisma, { id: 'user-b', plan: 'free' });
+    await prisma.chat.create({
+      data: {
+        id: 'chat-b',
+        userId: otherUser.id,
+        title: '其他用户的会话',
+        messages: {
+          create: {
+            id: 'shared-message-id',
+            role: 'user',
+            content: '不能被改写的原内容',
+          },
+        },
+      },
+    });
+    mockSession(user.id);
+
+    const response = await chatRoute.POST(
+      chatRequest({
+        id: 'chat-a',
+        messages: [
+          {
+            id: 'shared-message-id',
+            role: 'user',
+            parts: [{ type: 'text', text: '恶意覆盖内容' }],
+          },
+        ],
+      }),
+    );
+    const originalMessage = await prisma.message.findUnique({
+      where: { id: 'shared-message-id' },
+    });
+    const rateLimit = await prisma.rateLimit.findUnique({
+      where: { userId: user.id },
+    });
+    const usage = await prisma.quotaUsage.findUnique({
+      where: { requestId: 'shared-message-id' },
+    });
+
+    expect(response.status).toBe(500);
+    expect(originalMessage).toMatchObject({
+      chatId: 'chat-b',
+      content: '不能被改写的原内容',
+    });
+    expect(rateLimit?.count).toBe(0);
+    expect(usage).toMatchObject({
+      userId: user.id,
+      status: 'REFUNDED',
+      refundReason: 'request_persist_failed',
+    });
     expect(mockedCreateRootAgent).not.toHaveBeenCalled();
   });
 });

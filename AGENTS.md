@@ -82,12 +82,13 @@ Before considering a code change done, run the narrowest useful check:
 
 ## Current Project Priorities
 
-For this project, prefer this learning and implementation order:
+The test foundation, database integration coverage, and auditable `QuotaUsage`
+ledger are in place. Prefer this learning and implementation order next:
 
-1. Build out the test foundation.
-2. Add database integration tests for quota, conversations, and route ownership.
-3. Add a `QuotaUsage` ledger for auditable quota reservations/refunds.
-4. Add agent observable events for product-visible progress.
+1. Add agent observable events for product-visible progress.
+2. Add conversation summaries for long conversations and token control.
+3. Add explicit user-profile memory with clear write and delete rules.
+4. Add vector retrieval only when semantic history/document search is needed.
 5. Add Redis later for short-window anti-abuse or caching, not as the source of quota truth.
 
 ## Safety Notes
