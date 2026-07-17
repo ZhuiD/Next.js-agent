@@ -162,6 +162,75 @@ test('loads a historical conversation into the chat area', async ({ page }) => {
   await expect(page.getByText('之前的问题')).toBeVisible();
   await expect(page.getByText('之前的回答')).toBeVisible();
   await expect(page.getByText('Agent', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Agent 活动' })).toHaveCount(0);
+});
+
+test('silently handles a streamed model response without reasoning', async ({
+  page,
+}) => {
+  await mockAuthenticatedApp(page);
+  await page.route('**/api/chat', route =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        'x-vercel-ai-ui-message-stream': 'v1',
+      },
+      body: createUiMessageStream([
+        { type: 'start', messageId: 'assistant-no-reasoning' },
+        { type: 'start-step' },
+        {
+          type: 'data-agent-event',
+          id: 'event-start',
+          data: {
+            id: 'event-start',
+            runId: 'run-no-reasoning',
+            sequence: 1,
+            type: 'run.started',
+            scope: 'root',
+            status: 'running',
+            title: '开始处理请求',
+            createdAt: '2026-07-17T01:00:00.000Z',
+          },
+        },
+        { type: 'text-start', id: 'text-no-reasoning' },
+        {
+          type: 'text-delta',
+          id: 'text-no-reasoning',
+          delta: '这是不支持思考模式的模型回复。',
+        },
+        { type: 'text-end', id: 'text-no-reasoning' },
+        {
+          type: 'data-agent-event',
+          id: 'event-finish',
+          data: {
+            id: 'event-finish',
+            runId: 'run-no-reasoning',
+            sequence: 2,
+            type: 'run.completed',
+            scope: 'root',
+            status: 'completed',
+            title: '任务已完成',
+            createdAt: '2026-07-17T01:00:00.500Z',
+          },
+        },
+        { type: 'finish-step' },
+        { type: 'finish', finishReason: 'stop' },
+      ]),
+    }),
+  );
+
+  await page.goto('/');
+  await page
+    .getByPlaceholder('例如：最近 24 小时最火的 AI 项目，用中文总结')
+    .fill('直接回答，不需要调用工具');
+  await page.getByRole('button', { name: '发送' }).click();
+
+  await expect(
+    page.getByText('这是不支持思考模式的模型回复。'),
+  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Agent 活动' })).toHaveCount(0);
 });
 
 test('sends a message, renders the streamed answer, and refreshes quota', async ({
@@ -206,9 +275,16 @@ test('sends a message, renders the streamed answer, and refreshes quota', async 
             scope: 'root',
             status: 'running',
             title: '开始处理请求',
-            createdAt: expires,
+            createdAt: '2026-07-17T01:00:00.000Z',
           },
         },
+        { type: 'reasoning-start', id: 'reasoning-1' },
+        {
+          type: 'reasoning-delta',
+          id: 'reasoning-1',
+          delta: '我需要先获取真实的趋势项目，再整理成中文摘要。',
+        },
+        { type: 'reasoning-end', id: 'reasoning-1' },
         {
           type: 'data-agent-event',
           id: 'event-2',
@@ -216,12 +292,58 @@ test('sends a message, renders the streamed answer, and refreshes quota', async 
             id: 'event-2',
             runId: 'run-e2e',
             sequence: 2,
+            type: 'agent.started',
+            scope: 'root',
+            name: 'github-research',
+            status: 'running',
+            title: 'GitHub 趋势 Agent 已启动',
+            createdAt: '2026-07-17T01:00:00.100Z',
+          },
+        },
+        {
+          type: 'data-agent-event',
+          id: 'event-3',
+          data: {
+            id: 'event-3',
+            runId: 'run-e2e',
+            sequence: 3,
+            type: 'tool.started',
+            scope: 'github-research',
+            name: 'github-trending',
+            status: 'running',
+            title: '正在执行 GitHub Trending 抓取',
+            createdAt: '2026-07-17T01:00:00.200Z',
+          },
+        },
+        {
+          type: 'data-agent-event',
+          id: 'event-4',
+          data: {
+            id: 'event-4',
+            runId: 'run-e2e',
+            sequence: 4,
+            type: 'tool.completed',
+            scope: 'github-research',
+            name: 'github-trending',
+            status: 'completed',
+            title: 'GitHub Trending 抓取已完成',
+            detail: '找到 8 个仓库',
+            durationMs: 850,
+            createdAt: '2026-07-17T01:00:01.050Z',
+          },
+        },
+        {
+          type: 'data-agent-event',
+          id: 'event-5',
+          data: {
+            id: 'event-5',
+            runId: 'run-e2e',
+            sequence: 5,
             type: 'run.completed',
             scope: 'root',
             status: 'completed',
             title: '任务已完成',
-            durationMs: 850,
-            createdAt: expires,
+            createdAt: '2026-07-17T01:00:01.100Z',
           },
         },
         { type: 'text-start', id: 'text-1' },
@@ -244,9 +366,17 @@ test('sends a message, renders the streamed answer, and refreshes quota', async 
   await page.getByRole('button', { name: '发送' }).click();
 
   await expect(page.getByText('请用中文总结今天的 GitHub 趋势')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Agent 执行进度' })).toBeVisible();
-  await expect(page.getByText('开始处理请求')).toBeVisible();
-  await expect(page.getByText('任务已完成')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Agent 活动' })).toBeVisible();
+  await expect(page.getByText('已完成思考')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '展开 Agent 活动' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '展开 Agent 活动' }).click();
+  await expect(
+    page.getByText('我需要先获取真实的趋势项目，再整理成中文摘要。'),
+  ).toBeVisible();
+  await expect(page.getByText('正在执行 GitHub Trending 抓取')).toBeVisible();
+  await expect(page.getByText('找到 8 个仓库')).toBeVisible();
   await expect(page.getByText('这是 E2E 模拟的 Agent 回复。')).toBeVisible();
   await expect(page.getByText('剩余 18/20 次')).toBeVisible();
   await expect.poll(() => chatRequestBody).not.toBeUndefined();

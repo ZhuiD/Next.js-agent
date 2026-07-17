@@ -6,7 +6,7 @@
 - arXiv 论文检索与中文调研报告
 - GitHub OAuth 登录
 - Supabase Postgres 持久化用户、会话、消息、限流状态和额度流水
-- Agent 执行进度实时展示与运行事件追踪
+- Agent 思考与执行活动流展示，以及运行事件追踪
 - Prisma Client 生成物独立输出到 `generated/prisma`
 
 ## 技术栈
