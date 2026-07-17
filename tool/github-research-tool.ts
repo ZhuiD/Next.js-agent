@@ -1,6 +1,7 @@
 import { tool, type UIToolInvocation, type UIMessageStreamWriter } from 'ai';
 import { z } from 'zod';
 import { createGithubAgent } from '@/agent/github-agent';
+import { getAgentRuntimeContext } from '@/lib/agent-events';
 
 /**
  * 把 GitHub Trending subagent 包装成给主 agent 使用的 tool。
@@ -29,6 +30,13 @@ export const githubResearchTool = tool({
       .describe('可选：把用户提到的编程语言提示给 subagent（如 typescript）。'),
   }),
   async *execute({ task, sinceHint, languageHint }, { experimental_context }) {
+    const events = getAgentRuntimeContext(experimental_context)?.events;
+    const startedAt = Date.now();
+    await events?.emit({
+      type: 'agent.started',
+      scope: 'root',
+      name: 'github-research',
+    });
     yield { state: 'loading' as const, task };
 
     const ctx = experimental_context as
@@ -37,6 +45,13 @@ export const githubResearchTool = tool({
     const writer = ctx?.writer;
 
     if (!writer) {
+      await events?.emit({
+        type: 'agent.failed',
+        scope: 'root',
+        name: 'github-research',
+        detail: '缺少流式输出上下文',
+        durationMs: Date.now() - startedAt,
+      });
       yield {
         state: 'error' as const,
         message: 'github_research: missing UI stream writer in context',
@@ -45,7 +60,7 @@ export const githubResearchTool = tool({
     }
 
     try {
-      const subagent = createGithubAgent();
+      const subagent = createGithubAgent(experimental_context);
       const prompt = [
         `用户诉求：${task}`,
         sinceHint ? `时间窗提示：${sinceHint}` : null,
@@ -65,12 +80,26 @@ export const githubResearchTool = tool({
 
       const finalText = await result.text;
 
+      await events?.emit({
+        type: 'agent.completed',
+        scope: 'root',
+        name: 'github-research',
+        durationMs: Date.now() - startedAt,
+      });
+
       yield {
         state: 'ready' as const,
         task,
         report: finalText,
       };
     } catch (err) {
+      await events?.emit({
+        type: 'agent.failed',
+        scope: 'root',
+        name: 'github-research',
+        detail: '趋势分析未能完成',
+        durationMs: Date.now() - startedAt,
+      });
       yield {
         state: 'error' as const,
         message: err instanceof Error ? err.message : String(err),

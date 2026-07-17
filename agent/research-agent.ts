@@ -12,7 +12,7 @@ import {
  * 文献调研 subagent —— 由主 agent 通过 literature_research tool 调用。
  * 拥有独立的 system prompt + 工具集 + 上下文。
  */
-export function createResearchAgent() {
+export function createResearchAgent(context?: unknown) {
   return new ToolLoopAgent({
     model: chatModel,
     instructions: buildSystemPrompt({
@@ -23,6 +23,7 @@ export function createResearchAgent() {
     tools: {
       paper_search: paperSearchTool,
     },
+    experimental_context: context,
   });
 }
 

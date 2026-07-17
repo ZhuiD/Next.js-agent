@@ -7,6 +7,10 @@ import { z } from 'zod';
 import { auth } from '@/auth';
 import { createRootAgent } from '@/agent/root-agent';
 import type { AppUIMessage } from '@/agent/ui-messages';
+import {
+  startAgentRun,
+  type AgentRunRecorder,
+} from '@/lib/agent-events';
 import { prisma } from '@/lib/prisma';
 import {
   checkUserRateLimit,
@@ -236,6 +240,7 @@ export async function POST(request: Request) {
   }
 
   const quotaReservationId = rateLimit.reservationId;
+  let agentRun: AgentRunRecorder | undefined;
   let quotaRefundPromise: Promise<void> | null = null;
   let streamFailed = false;
 
@@ -302,16 +307,19 @@ export async function POST(request: Request) {
     }
   }
 
-  async function handleStreamFailure(reason: string) {
+  async function handleStreamFailure(reason: string, error: unknown = reason) {
     streamFailed = true;
-    await refundQuotaOnce(reason);
+    await Promise.all([
+      refundQuotaOnce(reason),
+      agentRun?.fail(error, 'Agent 流式执行未能完成'),
+    ]);
   }
 
   function handleStreamError(error: unknown): string {
     // createUIMessageStream 的 onError 是同步回调，不能 await。
     // 主 agent stream 的 error chunk 会在 execute 里 await；这里兜底处理
     // SDK 后台 merge、subagent merge、stream 状态机等更外层错误。
-    void handleStreamFailure('agent_stream_error');
+    void handleStreamFailure('agent_stream_error', error);
     return formatStreamError(error);
   }
 
@@ -333,14 +341,35 @@ export async function POST(request: Request) {
     );
   }
 
+  const agentRunResult = await startAgentRun({
+    userId,
+    chatId,
+    requestMessageId: latestMessage.id,
+  });
+
+  if (agentRunResult.status === 'duplicate') {
+    await refundQuotaOnce('duplicate_agent_run');
+    return Response.json(
+      { error: '该请求正在处理或已经完成，请勿重复提交' },
+      { status: 409 },
+    );
+  }
+
+  if (agentRunResult.status === 'started') {
+    agentRun = agentRunResult.recorder;
+  }
+
   const stream = createUIMessageStream<AppUIMessage>({
     originalMessages: messages,
     execute: async ({ writer }) => {
       try {
+        agentRun?.attachWriter(writer);
+        await agentRun?.emit({ type: 'run.started', scope: 'root' });
+
         // experimental_context 由 agent 透传给所有 tool。
         // subagent-as-tool 的 execute 会通过 ctx.writer 把自己的 UI stream
         // merge 到这个主 writer。
-        const agent = createRootAgent({ writer });
+        const agent = createRootAgent({ writer, events: agentRun });
 
         const modelMessages = await convertToModelMessages(messages);
 
@@ -362,16 +391,23 @@ export async function POST(request: Request) {
             // AI SDK 有些 provider/stream 错误不会 throw，而是变成 error chunk。
             // 先退回预占额度，再把错误转发给前端；这样失败请求不会白扣次数。
             if (value.type === 'error') {
-              await handleStreamFailure('agent_error_chunk');
+              await handleStreamFailure(
+                'agent_error_chunk',
+                new Error(value.errorText),
+              );
             }
 
             writer.write(value);
+          }
+
+          if (!streamFailed) {
+            await agentRun?.complete();
           }
         } finally {
           reader.releaseLock();
         }
       } catch (error) {
-        await handleStreamFailure('agent_stream_failed');
+        await handleStreamFailure('agent_stream_failed', error);
         throw error;
       }
     },
@@ -381,12 +417,16 @@ export async function POST(request: Request) {
       if (streamFailed) return;
 
       if (isAborted) {
-        await consumeQuota('user_aborted');
+        await Promise.all([
+          consumeQuota('user_aborted'),
+          agentRun?.abort(),
+        ]);
         return;
       }
 
       await consumeQuota('response_completed');
       await saveMessage(chatId, responseMessage);
+      await agentRun?.linkResponseMessage(responseMessage.id);
     },
     onError: handleStreamError,
   });

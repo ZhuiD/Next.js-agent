@@ -10,6 +10,7 @@ import ChatInput from '@/component/chat-input';
 import TrendingView from '@/component/trending-view';
 import PaperView from '@/component/paper-view';
 import ResearchDisclaimer from '@/component/research-disclaimer';
+import AgentTimeline from '@/component/agent-timeline';
 import { useStickToBottom } from '@/lib/use-stick-to-bottom';
 import type { AppUIMessage } from '@/agent/ui-messages';
 
@@ -208,6 +209,12 @@ export default function ChatArea({
               );
             const showResearchDisclaimer =
               hasPaperResults && (!isLastMessage || !isBusy);
+            const agentEvents =
+              message.role === 'assistant'
+                ? message.parts
+                    .filter(part => part.type === 'data-agent-event')
+                    .map(part => part.data)
+                : [];
 
             return (
               <div
@@ -223,6 +230,7 @@ export default function ChatArea({
                     Agent
                   </div>
                 )}
+                <AgentTimeline events={agentEvents} />
                 {message.parts.map((part, i) => {
                   switch (part.type) {
                     case 'text':
@@ -263,6 +271,10 @@ export default function ChatArea({
 
                     case 'tool-paper_search':
                       return <PaperView key={i} invocation={part} />;
+
+                    case 'data-agent-event':
+                      // 所有事件在上方统一排序展示，避免 data part 混进正文和工具卡片。
+                      return null;
                   }
                 })}
 
@@ -272,7 +284,7 @@ export default function ChatArea({
           })}
 
           {isBusy && (
-            <div className="text-xs text-zinc-400">Agent 思考中…</div>
+            <div className="text-xs text-zinc-400">Agent 执行中…</div>
           )}
         </div>
       </div>

@@ -195,6 +195,35 @@ test('sends a message, renders the streamed answer, and refreshes quota', async 
       body: createUiMessageStream([
         { type: 'start', messageId: 'assistant-e2e' },
         { type: 'start-step' },
+        {
+          type: 'data-agent-event',
+          id: 'event-1',
+          data: {
+            id: 'event-1',
+            runId: 'run-e2e',
+            sequence: 1,
+            type: 'run.started',
+            scope: 'root',
+            status: 'running',
+            title: '开始处理请求',
+            createdAt: expires,
+          },
+        },
+        {
+          type: 'data-agent-event',
+          id: 'event-2',
+          data: {
+            id: 'event-2',
+            runId: 'run-e2e',
+            sequence: 2,
+            type: 'run.completed',
+            scope: 'root',
+            status: 'completed',
+            title: '任务已完成',
+            durationMs: 850,
+            createdAt: expires,
+          },
+        },
         { type: 'text-start', id: 'text-1' },
         {
           type: 'text-delta',
@@ -215,6 +244,9 @@ test('sends a message, renders the streamed answer, and refreshes quota', async 
   await page.getByRole('button', { name: '发送' }).click();
 
   await expect(page.getByText('请用中文总结今天的 GitHub 趋势')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Agent 执行进度' })).toBeVisible();
+  await expect(page.getByText('开始处理请求')).toBeVisible();
+  await expect(page.getByText('任务已完成')).toBeVisible();
   await expect(page.getByText('这是 E2E 模拟的 Agent 回复。')).toBeVisible();
   await expect(page.getByText('剩余 18/20 次')).toBeVisible();
   await expect.poll(() => chatRequestBody).not.toBeUndefined();

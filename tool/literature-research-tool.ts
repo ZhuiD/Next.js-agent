@@ -1,6 +1,7 @@
 import { tool, type UIToolInvocation, type UIMessageStreamWriter } from 'ai';
 import { z } from 'zod';
 import { createResearchAgent } from '@/agent/research-agent';
+import { getAgentRuntimeContext } from '@/lib/agent-events';
 
 /**
  * 把 Literature Research subagent 包装成给主 agent 使用的 tool。
@@ -25,6 +26,13 @@ export const literatureResearchTool = tool({
       ),
   }),
   async *execute({ task }, { experimental_context }) {
+    const events = getAgentRuntimeContext(experimental_context)?.events;
+    const startedAt = Date.now();
+    await events?.emit({
+      type: 'agent.started',
+      scope: 'root',
+      name: 'literature-research',
+    });
     yield { state: 'loading' as const, task };
 
     const ctx = experimental_context as
@@ -35,6 +43,13 @@ export const literatureResearchTool = tool({
     if (!writer) {
       // 没拿到 writer 时退化为"非流式"模式：不转发 UI，只把结果回给 parent。
       // 实际运行不应走到这里——route handler 会注入 writer。
+      await events?.emit({
+        type: 'agent.failed',
+        scope: 'root',
+        name: 'literature-research',
+        detail: '缺少流式输出上下文',
+        durationMs: Date.now() - startedAt,
+      });
       yield {
         state: 'error' as const,
         message: 'literature_research: missing UI stream writer in context',
@@ -43,7 +58,7 @@ export const literatureResearchTool = tool({
     }
 
     try {
-      const subagent = createResearchAgent();
+      const subagent = createResearchAgent(experimental_context);
       const result = await subagent.stream({ prompt: task });
 
       // 1) 把 subagent 的整条 UI stream 转发到主流——
@@ -60,6 +75,13 @@ export const literatureResearchTool = tool({
       //    这样主 agent 知道任务完成了、subagent 说了什么，可以做简短收尾。
       const finalText = await result.text;
 
+      await events?.emit({
+        type: 'agent.completed',
+        scope: 'root',
+        name: 'literature-research',
+        durationMs: Date.now() - startedAt,
+      });
+
       yield {
         state: 'ready' as const,
         task,
@@ -68,6 +90,13 @@ export const literatureResearchTool = tool({
         report: finalText,
       };
     } catch (err) {
+      await events?.emit({
+        type: 'agent.failed',
+        scope: 'root',
+        name: 'literature-research',
+        detail: '文献调研未能完成',
+        durationMs: Date.now() - startedAt,
+      });
       yield {
         state: 'error' as const,
         message: err instanceof Error ? err.message : String(err),

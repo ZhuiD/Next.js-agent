@@ -82,14 +82,14 @@ Before considering a code change done, run the narrowest useful check:
 
 ## Current Project Priorities
 
-The test foundation, database integration coverage, and auditable `QuotaUsage`
-ledger are in place. Prefer this learning and implementation order next:
+The test foundation, database integration coverage, auditable `QuotaUsage`
+ledger, and agent observable event timeline are in place. Prefer this learning
+and implementation order next:
 
-1. Add agent observable events for product-visible progress.
-2. Add conversation summaries for long conversations and token control.
-3. Add explicit user-profile memory with clear write and delete rules.
-4. Add vector retrieval only when semantic history/document search is needed.
-5. Add Redis later for short-window anti-abuse or caching, not as the source of quota truth.
+1. Add conversation summaries for long conversations and token control.
+2. Add explicit user-profile memory with clear write and delete rules.
+3. Add vector retrieval only when semantic history/document search is needed.
+4. Add Redis later for short-window anti-abuse or caching, not as the source of quota truth.
 
 ## Safety Notes
 

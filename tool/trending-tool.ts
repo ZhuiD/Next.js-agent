@@ -1,6 +1,7 @@
 import { tool, type UIToolInvocation } from 'ai';
 import { z } from 'zod';
 import { fetchGithubTrending } from '@/lib/github-trending';
+import { getAgentRuntimeContext } from '@/lib/agent-events';
 
 export const trendingTool = tool({
   description:
@@ -24,11 +25,28 @@ export const trendingTool = tool({
       .default(15)
       .describe('返回的仓库数量，默认 15，最多 25。'),
   }),
-  async *execute({ since, language, limit }) {
+  async *execute(
+    { since, language, limit },
+    { experimental_context },
+  ) {
+    const events = getAgentRuntimeContext(experimental_context)?.events;
+    const startedAt = Date.now();
+    await events?.emit({
+      type: 'tool.started',
+      scope: 'github-research',
+      name: 'github-trending',
+    });
     yield { state: 'loading' as const, since, language, limit };
 
     try {
       const repos = await fetchGithubTrending(since, language, limit);
+      await events?.emit({
+        type: 'tool.completed',
+        scope: 'github-research',
+        name: 'github-trending',
+        detail: `找到 ${repos.length} 个仓库`,
+        durationMs: Date.now() - startedAt,
+      });
       yield {
         state: 'ready' as const,
         since,
@@ -37,6 +55,13 @@ export const trendingTool = tool({
         repos,
       };
     } catch (err) {
+      await events?.emit({
+        type: 'tool.failed',
+        scope: 'github-research',
+        name: 'github-trending',
+        detail: '本次 GitHub Trending 抓取失败',
+        durationMs: Date.now() - startedAt,
+      });
       yield {
         state: 'error' as const,
         message: err instanceof Error ? err.message : String(err),

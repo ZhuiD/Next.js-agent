@@ -1,4 +1,5 @@
-import type { UIMessage, InferUITools, UIDataTypes } from 'ai';
+import type { UIMessage, InferUITools } from 'ai';
+import type { AgentEventData } from '@/agent/event-types';
 import type { literatureResearchTool } from '@/tool/literature-research-tool';
 import type { githubResearchTool } from '@/tool/github-research-tool';
 import type { paperSearchTool } from '@/tool/paper-search-tool';
@@ -18,4 +19,12 @@ type AllTools = {
   trending: typeof trendingTool;
 };
 
-export type AppUIMessage = UIMessage<unknown, UIDataTypes, InferUITools<AllTools>>;
+type AppDataParts = {
+  'agent-event': AgentEventData;
+};
+
+export type AppUIMessage = UIMessage<
+  unknown,
+  AppDataParts,
+  InferUITools<AllTools>
+>;
