@@ -1,6 +1,7 @@
 import { tool, type UIToolInvocation } from 'ai';
 import { z } from 'zod';
 import { searchArxiv, type ArxivPaper } from '@/lib/arxiv';
+import { getAgentRuntimeContext } from '@/lib/agent-events';
 
 /** 工具输出 / UI 共用的论文条目（arXiv 字段） */
 export interface UnifiedPaper {
@@ -76,7 +77,17 @@ export const paperSearchTool = tool({
       .default(15)
       .describe('返回数量上限，默认 15。'),
   }),
-  async *execute({ query, category, sortBy, limit }) {
+  async *execute(
+    { query, category, sortBy, limit },
+    { experimental_context },
+  ) {
+    const events = getAgentRuntimeContext(experimental_context)?.events;
+    const startedAt = Date.now();
+    await events?.emit({
+      type: 'tool.started',
+      scope: 'literature-research',
+      name: 'paper-search',
+    });
     yield { state: 'loading' as const, query, category, sortBy, limit };
 
     try {
@@ -92,6 +103,14 @@ export const paperSearchTool = tool({
         papers.push(p);
       }
 
+      await events?.emit({
+        type: 'tool.completed',
+        scope: 'literature-research',
+        name: 'paper-search',
+        detail: `找到 ${papers.length} 篇论文`,
+        durationMs: Date.now() - startedAt,
+      });
+
       yield {
         state: 'ready' as const,
         query,
@@ -101,6 +120,13 @@ export const paperSearchTool = tool({
         papers,
       };
     } catch (err) {
+      await events?.emit({
+        type: 'tool.failed',
+        scope: 'literature-research',
+        name: 'paper-search',
+        detail: '本次 arXiv 检索失败',
+        durationMs: Date.now() - startedAt,
+      });
       yield {
         state: 'error' as const,
         message: err instanceof Error ? err.message : String(err),

@@ -11,7 +11,7 @@ import {
 /**
  * GitHub 趋势 subagent —— 由主 agent 通过 github_research tool 调用。
  */
-export function createGithubAgent() {
+export function createGithubAgent(context?: unknown) {
   return new ToolLoopAgent({
     model: chatModel,
     instructions: buildSystemPrompt({
@@ -22,6 +22,7 @@ export function createGithubAgent() {
     tools: {
       trending: trendingTool,
     },
+    experimental_context: context,
   });
 }
 

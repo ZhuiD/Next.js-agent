@@ -19,6 +19,7 @@ model User {
   chats         Chat[]
   rateLimit     RateLimit?
   quotaUsages   QuotaUsage[]
+  agentRuns     AgentRun[]
 }
 
 model Account {
@@ -57,13 +58,14 @@ model VerificationToken {
 }
 
 model Chat {
-  id        String    @id @default(cuid())
+  id        String     @id @default(cuid())
   userId    String
   title     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages  Message[]
+  agentRuns AgentRun[]
 
   @@index([userId, updatedAt])
 }
@@ -119,4 +121,53 @@ model QuotaUsage {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+}
+
+enum AgentRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  ABORTED
+}
+
+// 一次用户请求对应一个 AgentRun；具体过程拆成按 sequence 排序的 AgentEvent。
+// requestMessageId 用于关联用户触发这次运行的消息，也能阻止同一消息重复建 run。
+model AgentRun {
+  id                String         @id @default(cuid())
+  userId            String
+  chatId            String
+  requestMessageId  String         @unique
+  responseMessageId String?
+  status            AgentRunStatus @default(RUNNING)
+  nextSequence      Int            @default(0)
+  errorMessage      String?
+  startedAt         DateTime       @default(now())
+  finishedAt        DateTime?
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chat              Chat           @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  events            AgentEvent[]
+
+  @@index([userId, startedAt])
+  @@index([chatId, startedAt])
+  @@index([status, startedAt])
+}
+
+// type/scope/name 使用字符串而不是数据库 enum：可观测事件会随 Agent 能力扩展，
+// 新增一种公开事件不应该每次都要求修改数据库枚举。
+model AgentEvent {
+  id         String   @id @default(cuid())
+  runId      String
+  sequence   Int
+  type       String
+  scope      String
+  name       String?
+  status     String
+  title      String
+  detail     String?
+  durationMs Int?
+  createdAt  DateTime @default(now())
+  run        AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@index([runId, createdAt])
 }

@@ -41,6 +41,8 @@ export async function cleanupDatabase(prisma: PrismaClient) {
 
   // Delete from child tables first so the cleanup order is explicit.
   // Some relations also cascade, but explicit cleanup keeps test isolation easy to reason about.
+  await prisma.agentEvent.deleteMany();
+  await prisma.agentRun.deleteMany();
   await prisma.message.deleteMany();
   await prisma.chat.deleteMany();
   await prisma.quotaUsage.deleteMany();
