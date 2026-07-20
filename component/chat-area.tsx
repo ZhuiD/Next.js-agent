@@ -10,7 +10,7 @@ import ChatInput from '@/component/chat-input';
 import TrendingView from '@/component/trending-view';
 import PaperView from '@/component/paper-view';
 import ResearchDisclaimer from '@/component/research-disclaimer';
-import AgentTimeline from '@/component/agent-timeline';
+import AgentActivityPanel from '@/component/agent-activity-panel';
 import { useStickToBottom } from '@/lib/use-stick-to-bottom';
 import type { AppUIMessage } from '@/agent/ui-messages';
 
@@ -122,6 +122,7 @@ export default function ChatArea({
   const isAuthenticated = authStatus === 'authenticated';
   const canSend = isAuthenticated && !isAuthLoading;
   const isEmpty = messages.length === 0;
+  const hasStreamingAssistant = messages.at(-1)?.role === 'assistant';
   const inputPlaceholder = isAuthenticated
     ? '例如：最近 24 小时最火的 AI 项目，用中文总结'
     : '登录后即可发送消息';
@@ -209,13 +210,6 @@ export default function ChatArea({
               );
             const showResearchDisclaimer =
               hasPaperResults && (!isLastMessage || !isBusy);
-            const agentEvents =
-              message.role === 'assistant'
-                ? message.parts
-                    .filter(part => part.type === 'data-agent-event')
-                    .map(part => part.data)
-                : [];
-
             return (
               <div
                 key={message.id}
@@ -230,7 +224,12 @@ export default function ChatArea({
                     Agent
                   </div>
                 )}
-                <AgentTimeline events={agentEvents} />
+                {message.role === 'assistant' && (
+                  <AgentActivityPanel
+                    parts={message.parts}
+                    isStreaming={isLastMessage && isBusy}
+                  />
+                )}
                 {message.parts.map((part, i) => {
                   switch (part.type) {
                     case 'text':
@@ -273,7 +272,8 @@ export default function ChatArea({
                       return <PaperView key={i} invocation={part} />;
 
                     case 'data-agent-event':
-                      // 所有事件在上方统一排序展示，避免 data part 混进正文和工具卡片。
+                    case 'reasoning':
+                      // 运行事件和可选 reasoning 在上方按原始 part 顺序统一展示。
                       return null;
                   }
                 })}
@@ -283,7 +283,7 @@ export default function ChatArea({
             );
           })}
 
-          {isBusy && (
+          {isBusy && !hasStreamingAssistant && (
             <div className="text-xs text-zinc-400">Agent 执行中…</div>
           )}
         </div>
