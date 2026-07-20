@@ -80,6 +80,9 @@ Auth.js Prisma Adapter 使用这些标准模型：
 - `Chat`：用户的一条对话。
 - `Message`：对话里的用户消息、助手消息和 AI SDK message parts。
 - `RateLimit`：用户当前限流窗口的计数状态。
+- `QuotaUsage`：每次请求的额度预占、确认和退款流水。
+- `AgentRun`：一次用户请求对应的 Agent 运行。
+- `AgentEvent`：运行中的 Agent 与工具事件时间线。
 
 `partsJson` 保存 AI SDK UI message parts，方便历史消息恢复时继续展示工具调用卡片。
 
@@ -139,6 +142,20 @@ pnpm dev
 ```bash
 pnpm build
 ```
+
+## 测试数据库
+
+正常本地开发不要求启动 PostgreSQL 测试服务。真实数据库集成测试默认由 GitHub Actions 使用临时 PostgreSQL 执行；只有本地调试事务、并发或 migrations 时才需要准备 `codex_test`。
+
+本地可选流程：
+
+```bash
+cp .env.test.example .env.test
+pnpm db:test:migrate
+pnpm test:integration
+```
+
+测试数据库必须名为 `codex_test`，并设置 `ALLOW_TEST_DATABASE_RESET="true"`。不要使用 `.env.local` 中的开发或生产 Supabase。完整说明见 [`testing.md`](testing.md)。
 
 ## 相关文件
 

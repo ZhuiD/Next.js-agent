@@ -207,14 +207,17 @@ pnpm exec prisma migrate deploy
 # 单元测试
 pnpm test:unit
 
-# 可选：本地数据库集成测试，需要 .env.test 和本地 codex_test 数据库
+# 可选：仅在本地调试数据库行为时使用
 pnpm test:integration
+
+# 为可选的本地 codex_test 应用 migrations
+pnpm db:test:migrate
 
 # 浏览器 E2E 测试，首次换电脑需要先安装 Playwright 浏览器
 pnpm test:e2e
 
 # 本地质量检查：lint + generate + typecheck + unit + build
-pnpm test:ci
+pnpm test:quality
 ```
 
 ## 测试与 CI
@@ -225,13 +228,14 @@ GitHub Actions 当前运行 3 个 job：
 - Integration：启动临时 Postgres，应用 migrations，运行 Route Handler / Prisma / 鉴权 / 额度相关集成测试。
 - E2E：安装 Chromium，启动 Next.js，用 Playwright 跑浏览器流程；测试中 mock 浏览器侧 API，不调用真实 Supabase、GitHub OAuth 或 LLM。
 
-本地常用命令：
+正常本地开发不要求启动 PostgreSQL。日常使用：
 
 ```bash
 pnpm test:unit
-pnpm test:e2e
-pnpm test:ci
+pnpm test:quality
 ```
+
+`pnpm test:ci` 是 `pnpm test:quality` 的兼容别名，只复现 CI 的 Quality job；数据库集成测试和 E2E 由 GitHub Actions 的独立 job 执行。
 
 首次在一台新电脑运行 E2E，需要先安装浏览器：
 
@@ -239,21 +243,22 @@ pnpm test:ci
 pnpm exec playwright install chromium
 ```
 
-本地运行集成测试是可选的。只有当你要在自己电脑运行 `pnpm test:integration` 时，才需要：
+本地运行数据库集成测试完全可选。GitHub Actions 会自动创建临时 PostgreSQL、应用 migrations，并执行全部集成测试。只有需要在自己电脑调试事务、原始 SQL、级联删除或并发逻辑时，才需要：
 
 ```bash
 cp .env.test.example .env.test
 ```
 
-并准备一个本地一次性 Postgres 数据库，数据库名必须是 `codex_test`。迁移命令示例：
+然后启动本地 PostgreSQL，创建一个名为 `codex_test` 的一次性数据库，并执行：
 
 ```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/codex_test?sslmode=disable" \
-DIRECT_URL="postgresql://postgres:postgres@localhost:5432/codex_test?sslmode=disable" \
-pnpm exec prisma migrate deploy
+pnpm db:test:migrate
+pnpm test:integration
 ```
 
-不要把 `.env.test` 指向 `.env.local` 里的 Supabase 正式库。GitHub CI 不需要你手动配置测试库，它会自动创建并销毁临时 Postgres。
+测试命令会在运行用例前检查数据库名称、连接状态和 migrations；数据库未启动时会直接给出明确提示。不要把 `.env.test` 指向 `.env.local` 里的开发或生产 Supabase。若确实使用 Supabase，只能使用完全独立、允许清空数据的测试项目或数据库分支。
+
+更完整的本地与 CI 测试说明见 [`docs/testing.md`](docs/testing.md)。
 
 完整测试体系按 6 层理解：静态检查、单元测试、集成测试、E2E 测试、外部 API 契约测试、线上 smoke / 监控。当前已落地并进 CI 的是前 4 层；后 2 层后续按项目规模再补。
 

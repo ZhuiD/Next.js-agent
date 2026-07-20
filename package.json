@@ -11,9 +11,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration": "node scripts/test-database.mjs check && vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
-    "test:ci": "pnpm lint && pnpm generate && pnpm typecheck && pnpm test:unit && pnpm build"
+    "test:quality": "pnpm lint && pnpm generate && pnpm typecheck && pnpm test:unit && pnpm build",
+    "test:ci": "pnpm test:quality",
+    "db:test:migrate": "node scripts/test-database.mjs migrate"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.49",
